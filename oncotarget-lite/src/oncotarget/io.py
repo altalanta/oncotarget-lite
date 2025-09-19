@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Iterable
 
 import pandas as pd
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _DATA_RAW = _PROJECT_ROOT / "data" / "raw"
@@ -29,7 +29,7 @@ class _DepMapRecord(BaseModel):
     gene: str
     scores: dict[str, float]
 
-    @validator("scores")
+    @field_validator("scores")
     def check_scores(cls, value: dict[str, float]) -> dict[str, float]:
         if not value:
             msg = "dependency score dictionary must not be empty"
@@ -70,7 +70,7 @@ def load_gtex(path: Path | None = None) -> pd.DataFrame:
 
     data_path = path or (_DATA_RAW / "GTEx_subset.csv")
     df = _read_csv(data_path)
-    validated = [_GTExRecord(**row).dict() for row in df.to_dict(orient="records")]
+    validated = [_GTExRecord(**row).model_dump() for row in df.to_dict(orient="records")]
     return pd.DataFrame(validated)
 
 
@@ -79,7 +79,7 @@ def load_tcga(path: Path | None = None) -> pd.DataFrame:
 
     data_path = path or (_DATA_RAW / "TCGA_subset.csv")
     df = _read_csv(data_path)
-    validated = [_TCGARecord(**row).dict() for row in df.to_dict(orient="records")]
+    validated = [_TCGARecord(**row).model_dump() for row in df.to_dict(orient="records")]
     return pd.DataFrame(validated)
 
 
@@ -106,7 +106,7 @@ def load_annotations(path: Path | None = None) -> pd.DataFrame:
 
     data_path = path or (_DATA_RAW / "uniprot_annotations.csv")
     df = _read_csv(data_path)
-    validated = [_AnnotationRecord(**row).dict() for row in df.to_dict(orient="records")]
+    validated = [_AnnotationRecord(**row).model_dump() for row in df.to_dict(orient="records")]
     return pd.DataFrame(validated).set_index("gene").sort_index()
 
 
@@ -115,7 +115,7 @@ def load_ppi(path: Path | None = None) -> pd.DataFrame:
 
     data_path = path or (_DATA_RAW / "ppi_degree_subset.csv")
     df = _read_csv(data_path)
-    validated = [_PPIRecord(**row).dict() for row in df.to_dict(orient="records")]
+    validated = [_PPIRecord(**row).model_dump() for row in df.to_dict(orient="records")]
     return pd.DataFrame(validated).set_index("gene").sort_index()
 
 
