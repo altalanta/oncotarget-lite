@@ -107,6 +107,8 @@ def compute_shap_values(
     model.eval()
     subset = features.sample(n=min(max_samples, len(features)), random_state=0)
     background = subset.iloc[: min(10, len(subset))]
+    background_array = background.astype(np.float32).to_numpy()
+    subset_array = subset.astype(np.float32).to_numpy()
 
     def _predict(data: np.ndarray) -> np.ndarray:
         with torch.no_grad():
@@ -115,7 +117,7 @@ def compute_shap_values(
             probs = torch.sigmoid(logits).cpu().numpy().squeeze(-1)
         return probs
 
-    explainer = shap.KernelExplainer(_predict, background.values)
-    shap_values = explainer(subset.values, nsamples=100)
+    explainer = shap.KernelExplainer(_predict, background_array)
+    shap_values = explainer(subset_array, nsamples=100)
     values = pd.DataFrame(shap_values.values, columns=features.columns, index=subset.index)
     return values

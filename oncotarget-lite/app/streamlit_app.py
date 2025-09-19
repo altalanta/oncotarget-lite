@@ -72,7 +72,7 @@ with st.spinner("Generating model diagnostics..."):
 
         model.eval()
         with torch.no_grad():
-            logits = model(torch.tensor(feature_matrix.features.values, dtype=torch.float32))
+            logits = model(torch.tensor(feature_matrix.features.astype("float32").values, dtype=torch.float32))
             probs = torch.sigmoid(logits).numpy().squeeze()
     y_true = feature_matrix.labels.astype(int).to_numpy()
     summary = classification_summary(y_true, probs)
