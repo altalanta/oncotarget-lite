@@ -1,0 +1,21 @@
+name: oncotarget-lite
+dependencies:
+  - python=3.11
+  - pip
+  - pytorch::pytorch
+  - numpy
+  - pandas
+  - scikit-learn
+  - matplotlib
+  - plotly
+  - streamlit
+  - shap
+  - mypy
+  - ruff
+  - black
+  - pytest
+  - pytest-cov
+  - pydantic
+  - pip:
+      - torchmetrics
+      - seaborn

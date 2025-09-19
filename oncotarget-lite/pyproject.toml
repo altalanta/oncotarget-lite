@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oncotarget-lite"
+version = "0.1.0"
+description = "Demonstration toolkit for oncology immunotherapy target discovery"
+authors = [{name = "Your Name"}]
+requires-python = ">=3.11"
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+include = "src"
+
+[tool.ruff]
+line-length = 88
+select = ["E", "F", "W", "B", "I"]
+ignore = ["E203", "W503"]
+exclude = ["notebooks"]
+
+[tool.ruff.isort]
+known-first-party = ["oncotarget"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+plugins = []
+ignore_missing_imports = true
+mypy_path = "src"
+
+[tool.coverage.run]
+source = ["oncotarget"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
