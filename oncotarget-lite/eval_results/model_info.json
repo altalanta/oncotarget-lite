@@ -1,0 +1,31 @@
+{
+  "model_type": "fttransformer",
+  "task": "binary",
+  "n_features": 23,
+  "config": {
+    "train_csv": null,
+    "val_csv": null,
+    "test_csv": null,
+    "target_col": "target",
+    "validation_split": 0.2,
+    "model": "fttransformer",
+    "task": "binary",
+    "pretrained_encoder": "artifacts/test_encoder.pt",
+    "hidden_sizes": [
+      32,
+      16
+    ],
+    "mlp_dropout": 0.15,
+    "d_model": 128,
+    "n_heads": 4,
+    "n_layers": 3,
+    "dropout": 0.1,
+    "epochs": 3,
+    "lr": 0.001,
+    "batch_size": 16,
+    "patience": 20,
+    "seed": 42,
+    "output_dir": "artifacts/",
+    "model_name": null
+  }
+}
