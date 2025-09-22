@@ -1,0 +1,33 @@
+{
+  "auroc": 0.8360071301247771,
+  "auprc": 0.8139728898552427,
+  "brier": 0.18882202397704806,
+  "auroc_bootstrap": {
+    "mean": 0.8377350107544117,
+    "lower": 0.6953914141414141,
+    "upper": 0.9563461125961126
+  },
+  "auprc_bootstrap": {
+    "mean": 0.8238458717637587,
+    "lower": 0.6648459993956033,
+    "upper": 0.9453728461081403
+  },
+  "calibration": [
+    {
+      "fraction_of_positives": 0.0,
+      "mean_predicted": 0.17429893215497336
+    },
+    {
+      "fraction_of_positives": 0.21428571428571427,
+      "mean_predicted": 0.24302061008555548
+    },
+    {
+      "fraction_of_positives": 0.5454545454545454,
+      "mean_predicted": 0.36522091789679095
+    },
+    {
+      "fraction_of_positives": 1.0,
+      "mean_predicted": 0.4223160922527313
+    }
+  ]
+}
