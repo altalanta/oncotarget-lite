@@ -47,7 +47,47 @@ The data contains no individual-level or HIPAA-protected information. You may tr
 - SHAP explanations operate on the synthetic feature matrix and inherit its biases.
 - No attempt is made to model toxicity, HLA binding, patient stratification, or multi-modal omics integration.
 
-## Next Steps
+## FT-Transformer + Masked-Gene Pretraining
+
+This repository now includes **FT-Transformer** (Feature Tokenizer + Transformer) models for continuous tabular data, with optional **Masked Gene Modeling (MGM)** self-supervised pretraining.
+
+### Basic Usage
+
+```bash
+# 1) Pretrain encoder with masked-gene modeling (MGM) - optional but recommended
+python -m src.oncotarget.ssl_mgm \
+  --epochs 10 --mask-frac 0.15 --save-encoder artifacts/ft_encoder.pt
+
+# 2) Train FT-Transformer from scratch on supervised task
+python -m src.oncotarget.train \
+  --model fttransformer --epochs 100 --output-dir artifacts/
+
+# 3) OR fine-tune pretrained encoder on supervised task  
+python -m src.oncotarget.train \
+  --model fttransformer --pretrained-encoder artifacts/ft_encoder.pt \
+  --epochs 100 --output-dir artifacts/
+
+# 4) Evaluate trained model with comprehensive metrics
+python -m src.oncotarget.evaluate artifacts/fttransformer_binary_model.pt \
+  --bootstrap --feature-importance --save-predictions
+```
+
+### Key Features
+
+- **FT-Transformer**: Continuous feature tokenization + multi-head attention for tabular data
+- **MGM Pretraining**: Self-supervised masked gene reconstruction (15% random masking)
+- **Transfer Learning**: Load pretrained encoder weights into supervised classification head
+- **Backwards Compatible**: Works alongside existing MLP models and evaluation pipeline
+- **Comprehensive Testing**: Unit tests cover model components, training loops, and end-to-end workflows
+
+### Model Architecture
+
+- **FeatureTokenizer**: Projects each continuous feature to `d_model` dimensions with layer normalization
+- **TransformerEncoder**: Multi-head self-attention with configurable depth (2-4 layers recommended)
+- **Task Heads**: Binary classification, regression, or feature reconstruction
+- **CLS Token**: Learnable classification token for supervised tasks (disabled for reconstruction)
+
+### Next Steps
 1. Integrate experiment tracking (e.g., DVC + MLflow) and versioned data lineage.
 2. Expand cohorts with real GTEx/TCGA harmonized matrices and batch effect corrections.
 3. Incorporate clinical covariates (immune infiltrate, MSI, TMB) and spatial transcriptomics priors.
