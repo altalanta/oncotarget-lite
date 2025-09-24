@@ -1,14 +1,70 @@
 # oncotarget-lite
 
-Minimal, end-to-end oncology target discovery workflow that demonstrates data mining, handcrafted scoring, and neural network modeling for immunotherapy-focused biomarker triage.
+**Production-ready ML pipeline for immunotherapy target discovery with comprehensive monitoring and governance.**
+
+A sophisticated end-to-end machine learning pipeline featuring robust configuration management, advanced logging infrastructure, performance monitoring, and comprehensive validation for oncology target discovery workflows.
+
+## ✨ New Features (v0.2.1)
+
+- **🔧 Robust Configuration Management**: Pydantic-based configuration with environment variable overrides
+- **📊 Performance Monitoring**: Real-time resource monitoring with memory optimization
+- **📝 Advanced Logging**: Structured logging with MLflow integration and performance tracking  
+- **✅ Enhanced Validation**: Comprehensive data validation with detailed error handling
+- **🚀 Production CLI**: Enhanced command-line interface with monitoring and configuration management
+- **📈 Bootstrap CIs**: Statistical confidence intervals and model calibration analysis
+- **🔧 Memory Management**: Intelligent memory optimization and GPU cache management
 
 ## Quickstart
-- `conda env create -f environment.yml` to provision the reproducible environment.
-- `conda activate oncotarget-lite` then `make lint test` to run quality checks and unit tests.
-- `make run-app` to explore interactive insights with Streamlit on `http://localhost:8501`.
-- Prefer containers? `make build-img` then `docker run -it --rm -p 8501:8501 oncotarget-lite:latest`.
 
-All pipelines run locally in under two minutes on a modern laptop CPU.
+### Basic Setup
+```bash
+# Create environment with comprehensive dependencies
+conda env create -f environment.yml
+conda activate oncotarget-lite
+
+# Validate installation and system info
+python -m oncotarget_lite.cli system-info
+
+# Run quality checks and tests
+make lint test
+```
+
+### Configuration Management
+```bash
+# View current configuration
+python -m oncotarget_lite.cli config --show
+
+# Validate configuration
+python -m oncotarget_lite.cli config --validate
+
+# Use custom configuration file
+cp config.example.yaml my_config.yaml
+python -m oncotarget_lite.cli config --config-file my_config.yaml --show
+```
+
+### Enhanced Training Pipeline
+```bash
+# Train with comprehensive monitoring
+python -m oncotarget_lite.cli train --model-type mlp --enable-monitoring
+
+# Train with custom configuration
+python -m oncotarget_lite.cli train --config-file my_config.yaml --model-type random_forest
+
+# Validate data before training
+python -m oncotarget_lite.cli validate-data --data-dir data/raw
+```
+
+### Interactive Applications
+```bash
+# Launch Streamlit app with SHAP explanations
+make run-app  # or streamlit run app/streamlit_app.py
+
+# Docker deployment (production-ready)
+make build-img
+docker run -it --rm -p 8501:8501 oncotarget-lite:latest
+```
+
+All pipelines run locally in under two minutes on a modern laptop CPU with comprehensive monitoring and validation.
 
 ## Repository Tour
 - `data/raw/` tiny cached CSVs covering normal tissues (GTEx-like), tumor medians (TCGA-like), dependencies (DepMap-like), annotations (UniProt-like), and graph connectivity (STRING/BioGRID-like). Synthetic values emulate real magnitudes for ~50 genes (EPCAM, MSLN, CD276, etc.).

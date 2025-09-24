@@ -1,0 +1,54 @@
+# Example configuration file for oncotarget-lite pipeline
+# Copy this to config.yaml and modify as needed
+
+# Multi-layer perceptron configuration
+mlp:
+  hidden_sizes: [64, 32, 16]  # Hidden layer dimensions
+  dropout: 0.15               # Dropout probability [0.0, 1.0]
+  lr: 0.001                   # Learning rate
+  epochs: 100                 # Maximum training epochs
+  batch_size: 16              # Mini-batch size
+  patience: 10                # Early stopping patience
+  random_state: 42            # Random seed
+
+# Random Forest configuration  
+random_forest:
+  n_estimators: 100           # Number of trees
+  max_depth: null             # Maximum tree depth (null = no limit)
+  random_state: 42            # Random seed
+
+# Data loading and preprocessing
+data:
+  data_dir: "data/raw"        # Path to data directory
+  test_size: 0.2              # Test set proportion [0.0, 1.0]
+  val_size: 0.2               # Validation set proportion [0.0, 1.0]
+  random_state: 42            # Random seed for splits
+
+# Model evaluation parameters
+evaluation:
+  n_bootstrap: 1000           # Bootstrap samples for confidence intervals
+  calibration_bins: 10        # Bins for calibration analysis
+  confidence_level: 0.95      # Confidence level for CIs [0.0, 1.0]
+  random_state: 42            # Random seed for bootstrap
+
+# MLflow experiment tracking
+mlflow:
+  tracking_uri: "./mlruns"    # MLflow tracking directory/URI
+  experiment_name: "oncotarget-lite"  # Experiment name
+  enable_tracking: true       # Enable/disable MLflow tracking
+
+# Logging configuration
+logging:
+  level: "INFO"               # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file_path: "logs/pipeline.log"  # Log file path (null for no file logging)
+  console_output: true        # Enable console logging
+
+# Global project settings
+project_name: "oncotarget-lite"
+version: "0.2.1"
+
+# Environment variable overrides:
+# Set ONCOTARGET_MLP__HIDDEN_SIZES="[128,64,32]" to override mlp.hidden_sizes
+# Set ONCOTARGET_LOGGING__LEVEL="DEBUG" to override logging.level
+# Use double underscore (__) to separate nested configuration keys
