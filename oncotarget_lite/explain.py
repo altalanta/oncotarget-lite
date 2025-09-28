@@ -1,226 +1,150 @@
-"""SHAP explanations for model interpretability."""
+"""SHAP-based interpretability utilities."""
 
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, List
+from typing import Sequence
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import shap
-import torch
 
-from .utils import set_random_seed
+from .data import PROCESSED_DIR
+from .model import MODELS_DIR
+from .utils import ensure_dir, load_json, set_seeds
 
-
-def get_shap_explainer(model: Any, X_background: pd.DataFrame, model_type: str = "sklearn") -> shap.Explainer:
-    """Get appropriate SHAP explainer for the model type."""
-    
-    if model_type == "sklearn":
-        # Use TreeExplainer for tree-based models, KernelExplainer otherwise
-        try:
-            return shap.TreeExplainer(model)
-        except Exception:
-            # Fallback to KernelExplainer with limited background samples
-            background_sample = shap.sample(X_background, min(100, len(X_background)))
-            return shap.KernelExplainer(model.predict_proba, background_sample)
-    
-    elif model_type == "mlp":
-        # For PyTorch models, use KernelExplainer
-        def model_predict(X):
-            model.eval()
-            with torch.no_grad():
-                if isinstance(X, np.ndarray):
-                    X_tensor = torch.FloatTensor(X)
-                else:
-                    X_tensor = torch.FloatTensor(X.values)
-                outputs = torch.sigmoid(model(X_tensor)).numpy()
-                # Return probabilities for both classes
-                return np.column_stack([1 - outputs.flatten(), outputs.flatten()])
-        
-        background_sample = shap.sample(X_background, min(100, len(X_background)))
-        return shap.KernelExplainer(model_predict, background_sample)
-    
-    else:
-        raise ValueError(f"Unsupported model type: {model_type}")
+SHAP_DIR = Path("reports/shap")
+EXAMPLE_ALIASES = ["GENE1", "GENE2", "GENE3"]
 
 
-def compute_shap_values(
-    model: Any,
-    X_train: pd.DataFrame,
-    X_test: pd.DataFrame,
-    model_type: str = "sklearn",
-    random_state: int = 42
-) -> tuple[shap.Explainer, np.ndarray]:
-    """Compute SHAP values for test set."""
-    
-    set_random_seed(random_state)
-    
-    # Get explainer
-    explainer = get_shap_explainer(model, X_train, model_type)
-    
-    # Compute SHAP values (limit test set size for performance)
-    test_sample = X_test.sample(min(50, len(X_test)), random_state=random_state)
-    shap_values = explainer.shap_values(test_sample)
-    
-    # For binary classification, get positive class SHAP values
-    if isinstance(shap_values, list) and len(shap_values) == 2:
-        shap_values = shap_values[1]
-    
-    return explainer, shap_values, test_sample
+@dataclass(slots=True)
+class ShapArtifacts:
+    global_importance: pd.Series
+    per_gene_contribs: dict[str, pd.Series]
+    alias_map: dict[str, str]
 
 
-def plot_shap_summary(
-    shap_values: np.ndarray,
-    X_sample: pd.DataFrame,
-    output_path: Path,
-    max_display: int = 20
-) -> None:
-    """Create SHAP summary plot."""
-    
-    plt.figure(figsize=(10, 8))
-    shap.summary_plot(
-        shap_values, 
-        X_sample, 
-        max_display=max_display,
-        show=False
-    )
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=120, bbox_inches='tight')
-    plt.close()
+class ExplanationError(RuntimeError):
+    """Raised when SHAP explanations cannot be computed."""
 
 
-def plot_shap_feature_importance(
-    shap_values: np.ndarray,
-    feature_names: List[str],
-    output_path: Path,
-    max_display: int = 20
-) -> None:
-    """Create SHAP feature importance bar plot."""
-    
-    # Calculate mean absolute SHAP values
-    importance = np.abs(shap_values).mean(axis=0)
-    
-    # Sort features by importance
-    sorted_idx = np.argsort(importance)[-max_display:]
-    sorted_features = [feature_names[i] for i in sorted_idx]
-    sorted_importance = importance[sorted_idx]
-    
-    plt.figure(figsize=(10, 6))
-    plt.barh(range(len(sorted_importance)), sorted_importance)
-    plt.yticks(range(len(sorted_importance)), sorted_features)
-    plt.xlabel('Mean |SHAP Value|')
-    plt.title('Feature Importance (SHAP)')
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=120, bbox_inches='tight')
-    plt.close()
+def _load_training_state(processed_dir: Path, models_dir: Path):
+    from joblib import load
+
+    features = pd.read_parquet(processed_dir / "features.parquet")
+    splits = load_json(processed_dir / "splits.json")
+    model_path = models_dir / "logreg_pipeline.pkl"
+    if not model_path.exists():
+        raise ExplanationError("Trained model not found; run train before explain")
+    pipeline = load(model_path)
+    return features, splits, pipeline
 
 
-def plot_shap_waterfall_examples(
-    explainer: shap.Explainer,
-    X_sample: pd.DataFrame,
-    output_dir: Path,
-    gene_names: List[str] = None,
-    n_examples: int = 3
-) -> List[str]:
-    """Create SHAP waterfall plots for example genes."""
-    
-    if gene_names is None:
-        # Use first few samples as examples
-        gene_names = [f"GENE{i+1}" for i in range(min(n_examples, len(X_sample)))]
-    
-    example_files = []
-    
-    for i, gene_name in enumerate(gene_names[:n_examples]):
-        if i >= len(X_sample):
-            break
-            
-        plt.figure(figsize=(10, 6))
-        
-        # Get SHAP values for this example
-        shap_values_single = explainer.shap_values(X_sample.iloc[i:i+1])
-        if isinstance(shap_values_single, list):
-            shap_values_single = shap_values_single[1]  # Positive class
-        
-        # Create waterfall plot
-        shap.waterfall_plot(
-            shap.Explanation(
-                values=shap_values_single[0],
-                base_values=explainer.expected_value[1] if isinstance(explainer.expected_value, np.ndarray) else explainer.expected_value,
-                data=X_sample.iloc[i].values,
-                feature_names=list(X_sample.columns)
-            ),
-            show=False
+def _select_examples(test_genes: Sequence[str], *, k: int = 3) -> list[str]:
+    return list(test_genes)[:k]
+
+
+def _plot_global(feature_names: list[str], importances: np.ndarray, path: Path) -> None:
+    ensure_dir(path.parent)
+    order = np.argsort(importances)
+    sorted_features = [feature_names[i] for i in order]
+    sorted_importances = importances[order]
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.barh(sorted_features, sorted_importances, color="#4c72b0")
+    ax.set_xlabel("Mean |SHAP value|")
+    ax.set_title("Global Feature Importance")
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+
+
+def _plot_gene(gene: str, alias: str, contributions: pd.Series, path: Path) -> None:
+    ensure_dir(path.parent)
+    sorted_contribs = contributions.reindex(contributions.abs().sort_values(ascending=False).index)
+    top = sorted_contribs.head(10)
+    fig, ax = plt.subplots(figsize=(6, 4))
+    colors = ["#dd8452" if val >= 0 else "#55a868" for val in top]
+    ax.barh(top.index, top.values, color=colors)
+    ax.invert_yaxis()
+    ax.set_xlabel("SHAP contribution")
+    ax.set_title(f"{gene} ({alias}) feature contributions")
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+
+
+def generate_shap(
+    *,
+    processed_dir: Path = PROCESSED_DIR,
+    models_dir: Path = MODELS_DIR,
+    shap_dir: Path = SHAP_DIR,
+    seed: int = 42,
+    background_size: int = 100,
+) -> ShapArtifacts:
+    """Compute SHAP values for the trained model and persist plots."""
+
+    set_seeds(seed)
+    features, splits, pipeline = _load_training_state(processed_dir, models_dir)
+    train_genes: list[str] = splits["train_genes"]
+    test_genes: list[str] = splits["test_genes"]
+
+    if not train_genes or not test_genes:
+        raise ExplanationError("Missing train/test splits for SHAP")
+
+    background = features.loc[train_genes]
+    if len(background) > background_size:
+        background = background.sample(background_size, random_state=seed)
+
+    target = features.loc[test_genes]
+
+    def predict_fn(data: pd.DataFrame) -> np.ndarray:
+        preds = pipeline.predict_proba(data)[:, 1]
+        return preds
+
+    explainer = shap.Explainer(predict_fn, background, seed=seed)
+    shap_values = explainer(target)
+    values = np.array(shap_values.values)
+    if values.ndim == 2:
+        per_gene_values = values
+    else:  # KernelExplainer may return shape (n_samples, 1, n_features)
+        per_gene_values = values.reshape(values.shape[0], -1)
+
+    mean_abs = np.mean(np.abs(per_gene_values), axis=0)
+    feature_names = list(features.columns)
+    _plot_global(feature_names, mean_abs, shap_dir / "global_summary.png")
+
+    alias_map: dict[str, str] = {}
+    per_gene_contribs: dict[str, pd.Series] = {}
+
+    example_genes = _select_examples(test_genes, k=len(EXAMPLE_ALIASES))
+    for gene, alias in zip(example_genes, EXAMPLE_ALIASES):
+        idx = target.index.get_loc(gene)
+        contrib = pd.Series(per_gene_values[idx], index=feature_names)
+        per_gene_contribs[gene] = contrib
+        alias_map[alias] = gene
+        _plot_gene(
+            gene,
+            alias,
+            contrib,
+            shap_dir / f"example_{alias}.png",
         )
-        
-        plt.title(f'SHAP Explanation for {gene_name}')
-        
-        output_path = output_dir / f"example_{gene_name}.png"
-        plt.tight_layout()
-        plt.savefig(output_path, dpi=120, bbox_inches='tight')
-        plt.close()
-        
-        example_files.append(str(output_path))
-    
-    return example_files
 
+    shap_dir.mkdir(parents=True, exist_ok=True)
+    shap_values_path = shap_dir / "shap_values.npz"
+    np.savez(
+        shap_values_path,
+        genes=np.array(target.index, dtype=object),
+        values=per_gene_values,
+        feature_names=np.array(feature_names, dtype=object),
+    )
+    alias_path = shap_dir / "alias_map.json"
+    alias_path.write_text(json.dumps(alias_map, indent=2), encoding="utf-8")
 
-def generate_shap_explanations(
-    model: Any,
-    X_train: pd.DataFrame,
-    X_test: pd.DataFrame,
-    output_dir: Path,
-    model_type: str = "sklearn",
-    random_state: int = 42
-) -> Dict[str, Any]:
-    """Generate comprehensive SHAP explanations."""
-    
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Compute SHAP values
-    explainer, shap_values, X_sample = compute_shap_values(
-        model, X_train, X_test, model_type, random_state
+    return ShapArtifacts(
+        global_importance=pd.Series(mean_abs, index=feature_names).sort_values(ascending=False),
+        per_gene_contribs=per_gene_contribs,
+        alias_map=alias_map,
     )
-    
-    # Generate plots
-    shap_dir = output_dir / "shap"
-    shap_dir.mkdir(exist_ok=True)
-    
-    # Global summary
-    plot_shap_summary(shap_values, X_sample, shap_dir / "global_summary.png")
-    
-    # Feature importance
-    plot_shap_feature_importance(
-        shap_values, 
-        list(X_sample.columns), 
-        shap_dir / "feature_importance.png"
-    )
-    
-    # Example waterfall plots
-    example_files = plot_shap_waterfall_examples(
-        explainer, X_sample, shap_dir, n_examples=3
-    )
-    
-    # Calculate top features for each example
-    top_features_per_example = []
-    for i in range(min(3, len(X_sample))):
-        if i < len(shap_values):
-            feature_contributions = list(zip(X_sample.columns, shap_values[i]))
-            # Sort by absolute SHAP value
-            feature_contributions.sort(key=lambda x: abs(x[1]), reverse=True)
-            top_features_per_example.append({
-                f"GENE{i+1}": {
-                    "top_positive": [(f, v) for f, v in feature_contributions if v > 0][:3],
-                    "top_negative": [(f, v) for f, v in feature_contributions if v < 0][:3],
-                    "prediction_score": float(X_sample.iloc[i].sum())  # Simplified score
-                }
-            })
-    
-    return {
-        "shap_summary_path": str(shap_dir / "global_summary.png"),
-        "example_paths": example_files,
-        "top_features": top_features_per_example,
-        "feature_importance": {
-            "features": list(X_sample.columns),
-            "importance": np.abs(shap_values).mean(axis=0).tolist()
-        }
-    }

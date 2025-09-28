@@ -1,0 +1,115 @@
+stages:
+  prepare:
+    cmd: python -m oncotarget_lite.cli prepare --seed ${prepare.seed} --test-size ${prepare.test_size}
+    params:
+      - prepare.seed
+      - prepare.test_size
+    deps:
+      - oncotarget_lite/cli.py
+      - oncotarget_lite/data.py
+      - oncotarget_lite/utils.py
+      - data/raw/GTEx_subset.csv
+      - data/raw/TCGA_subset.csv
+      - data/raw/DepMap_essentials_subset.csv
+      - data/raw/uniprot_annotations.csv
+      - data/raw/ppi_degree_subset.csv
+    outs:
+      - data/processed/features.parquet
+      - data/processed/labels.parquet
+      - data/processed/splits.json
+
+  train:
+    cmd: python -m oncotarget_lite.cli train --seed ${train.seed} --C ${train.C} --max-iter ${train.max_iter}
+    params:
+      - train.seed
+      - train.C
+      - train.max_iter
+    deps:
+      - oncotarget_lite/cli.py
+      - oncotarget_lite/model.py
+      - oncotarget_lite/utils.py
+      - data/processed/features.parquet
+      - data/processed/labels.parquet
+      - data/processed/splits.json
+    outs:
+      - path: models/logreg_pipeline.pkl
+      - path: models/feature_list.json
+      - path: reports/predictions.parquet
+        cache: false
+        persist: true
+      - path: reports/metrics_basic.json
+        cache: false
+        persist: true
+
+  eval:
+    cmd: python -m oncotarget_lite.cli eval --seed ${eval.seed} --n-bootstrap ${eval.n_bootstrap} --ci ${eval.ci} --bins ${eval.bins}
+    params:
+      - eval.seed
+      - eval.n_bootstrap
+      - eval.ci
+      - eval.bins
+    deps:
+      - oncotarget_lite/cli.py
+      - oncotarget_lite/eval.py
+      - reports/predictions.parquet
+    outs:
+      - path: reports/metrics.json
+        cache: false
+        persist: true
+      - path: reports/bootstrap.json
+        cache: false
+        persist: true
+      - path: reports/calibration.json
+        cache: false
+        persist: true
+      - path: reports/calibration.csv
+        cache: false
+        persist: true
+      - path: reports/roc_curve.png
+        cache: false
+        persist: true
+      - path: reports/pr_curve.png
+        cache: false
+        persist: true
+      - path: reports/calibration_plot.png
+        cache: false
+        persist: true
+
+  explain:
+    cmd: python -m oncotarget_lite.cli explain --seed ${explain.seed} --background-size ${explain.background_size}
+    params:
+      - explain.seed
+      - explain.background_size
+    deps:
+      - oncotarget_lite/cli.py
+      - oncotarget_lite/explain.py
+      - oncotarget_lite/model.py
+      - data/processed/features.parquet
+      - data/processed/splits.json
+      - models/logreg_pipeline.pkl
+    outs:
+      - path: reports/shap
+        cache: false
+        persist: true
+
+  scorecard:
+    cmd: python -m oncotarget_lite.cli scorecard
+    deps:
+      - oncotarget_lite/cli.py
+      - oncotarget_lite/reporting.py
+      - reports/predictions.parquet
+      - reports/shap/global_summary.png
+      - reports/shap/example_GENE1.png
+      - reports/shap/example_GENE2.png
+      - reports/shap/example_GENE3.png
+      - reports/shap/shap_values.npz
+      - reports/shap/alias_map.json
+      - reports/metrics.json
+      - reports/bootstrap.json
+    outs:
+      - path: reports/target_scorecard.html
+        cache: false
+        persist: true
+      - path: docs/index.html
+        cache: false
+        persist: true
