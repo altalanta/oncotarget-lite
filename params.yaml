@@ -1,0 +1,15 @@
+prepare:
+  seed: 42
+  test_size: 0.3
+train:
+  seed: 42
+  C: 1.0
+  max_iter: 500
+eval:
+  seed: 42
+  n_bootstrap: 1000
+  ci: 0.95
+  bins: 10
+explain:
+  seed: 42
+  background_size: 100

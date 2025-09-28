@@ -1,39 +1,38 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
-from typing import Iterator
+from typing import Generator
 
+import numpy as np
+import pandas as pd
 import pytest
-import torch
-from typer.testing import CliRunner
 
-from histo_omics_lite.cli import app
+from oncotarget_lite.utils import ensure_dir
 
 
-@pytest.fixture(scope="session")
-def cli_runner() -> CliRunner:
-    return CliRunner()
+@pytest.fixture()
+def synthetic_reports(tmp_path: Path) -> Generator[Path, None, None]:
+    reports_dir = tmp_path / "reports"
+    ensure_dir(reports_dir)
 
+    rng = np.random.default_rng(42)
 
-@pytest.fixture(autouse=True)
-def _limit_threads() -> Iterator[None]:
-    prev_torch_threads = torch.get_num_threads()
-    torch.set_num_threads(1)
-    prev_env = {key: os.environ.get(key) for key in ("OMP_NUM_THREADS", "MKL_NUM_THREADS")}
-    os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["MKL_NUM_THREADS"] = "1"
-    try:
-        yield
-    finally:
-        torch.set_num_threads(prev_torch_threads)
-        for key, value in prev_env.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
+    def make_block(prefix: str, n: int) -> pd.DataFrame:
+        labels = np.array([0, 1] * (n // 2))
+        rng.shuffle(labels)
+        probs = np.where(labels == 1, rng.normal(0.8, 0.05, size=n), rng.normal(0.2, 0.05, size=n))
+        probs = np.clip(probs, 0.01, 0.99)
+        genes = [f"{prefix}_{i:03d}" for i in range(n)]
+        return pd.DataFrame({
+            "gene": genes,
+            "split": prefix,
+            "y_prob": probs,
+            "y_true": labels,
+        })
 
+    train = make_block("train", 40)
+    test = make_block("test", 20)
+    preds = pd.concat([train, test], ignore_index=True)
+    preds.to_parquet(reports_dir / "predictions.parquet", index=False)
 
-@pytest.fixture(scope="session")
-def project_root() -> Path:
-    return Path(__file__).resolve().parents[1]
+    yield reports_dir

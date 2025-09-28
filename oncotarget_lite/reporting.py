@@ -1,437 +1,268 @@
-"""Reporting utilities for generating HTML scorecards and capturing screenshots."""
+"""Reporting utilities for oncotarget-lite."""
+
+from __future__ import annotations
 
 import json
-import subprocess
-import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from jinja2 import Template
+import numpy as np
+import pandas as pd
 
-from .utils import load_json
+from .utils import ensure_dir, load_dataframe, load_json, write_text
+
+SCORECARD_PATH = Path("reports/target_scorecard.html")
+DOCS_INDEX = Path("docs/index.html")
+RUN_CONTEXT = Path("reports/run_context.json")
+README_PATH = Path("README.md")
 
 
-SCORECARD_TEMPLATE = """
+class ReportingError(RuntimeError):
+    """Raised when report artefacts cannot be generated."""
+
+
+def _load_metrics(reports_dir: Path) -> dict[str, Any]:
+    metrics_path = reports_dir / "metrics.json"
+    if not metrics_path.exists():
+        raise ReportingError("metrics.json not found; run eval before scorecard/docs")
+    return load_json(metrics_path)
+
+
+def _load_bootstrap(reports_dir: Path) -> dict[str, Any]:
+    bootstrap_path = reports_dir / "bootstrap.json"
+    if not bootstrap_path.exists():
+        raise ReportingError("bootstrap.json not found; run eval before scorecard/docs")
+    return load_json(bootstrap_path)
+
+
+def _load_predictions(reports_dir: Path) -> pd.DataFrame:
+    preds_path = reports_dir / "predictions.parquet"
+    if not preds_path.exists():
+        raise ReportingError("predictions.parquet missing; run train before scorecard")
+    return load_dataframe(preds_path)
+
+
+def _rank_test_predictions(preds: pd.DataFrame) -> pd.DataFrame:
+    test_preds = preds[preds["split"] == "test"].copy()
+    if test_preds.empty:
+        raise ReportingError("No test predictions available for scorecard")
+    test_preds.sort_values("y_prob", ascending=False, inplace=True)
+    test_preds["rank"] = np.arange(1, len(test_preds) + 1)
+    test_preds["percentile"] = 1 - (test_preds["rank"] - 0.5) / len(test_preds)
+    return test_preds.set_index("gene")
+
+
+def _load_shap_arrays(shap_dir: Path) -> tuple[dict[str, str], dict[str, np.ndarray], list[str]]:
+    alias_path = shap_dir / "alias_map.json"
+    shap_npz = shap_dir / "shap_values.npz"
+    if not alias_path.exists() or not shap_npz.exists():
+        raise ReportingError("SHAP artefacts missing; run explain before scorecard")
+    alias_map = json.loads(alias_path.read_text(encoding="utf-8"))
+    payload = np.load(shap_npz, allow_pickle=True)
+    genes = payload["genes"].tolist()
+    values = payload["values"]
+    feature_names = payload["feature_names"].tolist()
+    shap_lookup = {gene: values[idx] for idx, gene in enumerate(genes)}
+    return alias_map, shap_lookup, feature_names
+
+
+def _list_items(series: pd.Series) -> str:
+    return "".join(f"<li><strong>{feat}</strong>: {val:+.3f}</li>" for feat, val in series.items())
+
+
+def _describe_gene(
+    gene: str,
+    alias: str,
+    ranked_preds: pd.DataFrame,
+    shap_lookup: dict[str, np.ndarray],
+    feature_names: list[str],
+) -> str:
+    if gene not in ranked_preds.index:
+        raise ReportingError(f"Gene {gene} missing from predictions")
+    if gene not in shap_lookup:
+        raise ReportingError(f"Gene {gene} missing from SHAP values")
+    stats = ranked_preds.loc[gene]
+    contribs = pd.Series(shap_lookup[gene], index=feature_names)
+    top_pos = contribs.sort_values(ascending=False).head(3)
+    top_neg = contribs.sort_values().head(3)
+    shap_img = f"shap/example_{alias}.png"
+    return f"""
+    <div class="card">
+      <h3>{gene} ({alias})</h3>
+      <p>Predicted score: <strong>{stats['y_prob']:.3f}</strong> · Rank: {int(stats['rank'])} / {len(ranked_preds)} · Percentile: {stats['percentile']*100:.1f}%</p>
+      <div class="card-body">
+        <div>
+          <h4>Top positive contributors</h4>
+          <ul>{_list_items(top_pos)}</ul>
+        </div>
+        <div>
+          <h4>Top negative contributors</h4>
+          <ul>{_list_items(top_neg)}</ul>
+        </div>
+      </div>
+      <p><a href="{shap_img}"><img src="{shap_img}" alt="SHAP {gene}" /></a></p>
+    </div>
+    """
+
+
+def _metric_table_html(metrics: dict[str, Any], bootstrap: dict[str, Any]) -> str:
+    rows = [
+        ("AUROC", f"{metrics['auroc']:.3f}", f"{bootstrap['auroc']['lower']:.3f} – {bootstrap['auroc']['upper']:.3f}"),
+        ("Average Precision", f"{metrics['ap']:.3f}", f"{bootstrap['ap']['lower']:.3f} – {bootstrap['ap']['upper']:.3f}"),
+        ("Brier", f"{metrics['brier']:.3f}", "–"),
+        ("ECE", f"{metrics['ece']:.3f}", "–"),
+        ("Accuracy", f"{metrics['accuracy']:.3f}", "–"),
+        ("F1", f"{metrics['f1']:.3f}", "–"),
+        ("Train AUROC", f"{metrics['train_auroc']:.3f}", "–"),
+        ("Test AUROC", f"{metrics['test_auroc']:.3f}", "–"),
+        ("Overfit gap", f"{metrics['overfit_gap']:.3f}", "–"),
+    ]
+    body = "".join(
+        f"<tr><td>{name}</td><td>{value}</td><td>{ci}</td></tr>" for name, value, ci in rows
+    )
+    return f"<table><tr><th>Metric</th><th>Value</th><th>95% CI</th></tr>{body}</table>"
+
+
+def _metric_table_markdown(metrics: dict[str, Any], bootstrap: dict[str, Any]) -> str:
+    rows = [
+        ("AUROC", f"{metrics['auroc']:.3f}", f"{bootstrap['auroc']['lower']:.3f} – {bootstrap['auroc']['upper']:.3f}"),
+        ("Average Precision", f"{metrics['ap']:.3f}", f"{bootstrap['ap']['lower']:.3f} – {bootstrap['ap']['upper']:.3f}"),
+        ("Brier", f"{metrics['brier']:.3f}", "–"),
+        ("ECE", f"{metrics['ece']:.3f}", "–"),
+        ("Accuracy", f"{metrics['accuracy']:.3f}", "–"),
+        ("F1", f"{metrics['f1']:.3f}", "–"),
+        ("Train AUROC", f"{metrics['train_auroc']:.3f}", "–"),
+        ("Test AUROC", f"{metrics['test_auroc']:.3f}", "–"),
+        ("Overfit gap", f"{metrics['overfit_gap']:.3f}", "–"),
+    ]
+    header = "| Metric | Value | 95% CI |\n| --- | --- | --- |"
+    body = "\n".join(f"| {name} | {value} | {ci} |" for name, value, ci in rows)
+    return f"{header}\n{body}"
+
+
+def _update_model_card(model_card: Path, table: str) -> None:
+    if not model_card.exists():
+        return
+    content = model_card.read_text(encoding="utf-8")
+    start_marker = "<!-- METRICS_TABLE_START -->"
+    end_marker = "<!-- METRICS_TABLE_END -->"
+    if start_marker not in content or end_marker not in content:
+        return
+    new_section = f"{start_marker}\n{table}\n{end_marker}"
+    parts = content.split(start_marker)
+    suffix = parts[1].split(end_marker)[1]
+    updated = parts[0] + new_section + suffix
+    model_card.write_text(updated, encoding="utf-8")
+
+
+def _update_readme(table: str) -> None:
+    if not README_PATH.exists():
+        return
+    content = README_PATH.read_text(encoding="utf-8")
+    start_marker = "<!-- README_METRICS_START -->"
+    end_marker = "<!-- README_METRICS_END -->"
+    if start_marker not in content or end_marker not in content:
+        return
+    prefix, remainder = content.split(start_marker, 1)
+    _, suffix = remainder.split(end_marker, 1)
+    new_section = f"{start_marker}\n{table}\n{end_marker}"
+    README_PATH.write_text(prefix + new_section + suffix, encoding="utf-8")
+
+
+def _mlflow_link() -> str | None:
+    if not RUN_CONTEXT.exists():
+        return None
+    ctx = json.loads(RUN_CONTEXT.read_text(encoding="utf-8"))
+    run_id = ctx.get("run_id")
+    if not run_id:
+        return None
+    return f"mlflow://runs/{run_id}"
+
+
+def generate_scorecard(
+    *,
+    reports_dir: Path = Path("reports"),
+    shap_dir: Path = Path("reports/shap"),
+    output_path: Path = SCORECARD_PATH,
+) -> Path:
+    """Compose a compact HTML scorecard linking metrics, ranks, and SHAP artefacts."""
+
+    metrics = _load_metrics(reports_dir)
+    bootstrap = _load_bootstrap(reports_dir)
+    preds = _load_predictions(reports_dir)
+    ranked = _rank_test_predictions(preds)
+    alias_map, shap_lookup, feature_names = _load_shap_arrays(shap_dir)
+
+    html = [
+        "<html><head><meta charset='utf-8'><title>oncotarget-lite scorecard</title>",
+        "<style>body{font-family:Arial,sans-serif;margin:2rem;}h1{margin-bottom:0.5rem;}table{border-collapse:collapse;margin-top:1rem;}td,th{padding:0.4rem 0.8rem;border:1px solid #ccc;}div.card{border:1px solid #d0d0d0;padding:1rem;border-radius:8px;margin-top:1.5rem;}div.card-body{display:flex;gap:1.5rem;flex-wrap:wrap;}div.card-body ul{margin:0;padding-left:1.2rem;}img{max-width:360px;border:1px solid #ddd;padding:4px;border-radius:4px;display:block;margin:auto;}</style>",
+        "</head><body>",
+        "<h1>oncotarget-lite Scorecard</h1>",
+        "<p>Summary metrics with 95% confidence intervals.</p>",
+        _metric_table_html(metrics, bootstrap),
+    ]
+
+    for alias in ("GENE1", "GENE2", "GENE3"):
+        gene = alias_map.get(alias)
+        if not gene:
+            continue
+        html.append(_describe_gene(gene, alias, ranked, shap_lookup, feature_names))
+
+    html.append("</body></html>")
+    ensure_dir(output_path.parent)
+    write_text(output_path, "\n".join(html))
+    return output_path
+
+
+def build_docs_index(
+    *,
+    reports_dir: Path = Path("reports"),
+    docs_dir: Path = Path("docs"),
+    model_card: Path = Path("oncotarget_lite/model_card.md"),
+) -> Path:
+    """Create a light HTML index for reviewers and refresh the model card metrics block."""
+
+    metrics = _load_metrics(reports_dir)
+    bootstrap = _load_bootstrap(reports_dir)
+    scorecard_rel = f"../{SCORECARD_PATH.as_posix()}"
+    model_card_rel = f"../{model_card.as_posix()}"
+    calibration_plot = f"../{(reports_dir / 'calibration_plot.png').as_posix()}"
+    mlflow_ref = _mlflow_link()
+
+    html = f"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Oncotarget-lite Target Scorecard</title>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #f8f9fa;
-        }
-        .header {
-            text-align: center;
-            margin-bottom: 40px;
-            padding: 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border-radius: 10px;
-        }
-        .metrics-overview {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin-bottom: 40px;
-        }
-        .metric-card {
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            text-align: center;
-        }
-        .metric-value {
-            font-size: 2em;
-            font-weight: bold;
-            color: #2c3e50;
-        }
-        .metric-label {
-            color: #7f8c8d;
-            margin-top: 5px;
-        }
-        .gene-cards {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-            gap: 30px;
-            margin-bottom: 40px;
-        }
-        .gene-card {
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-            overflow: hidden;
-            transition: transform 0.3s ease;
-        }
-        .gene-card:hover {
-            transform: translateY(-5px);
-        }
-        .gene-header {
-            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
-            color: white;
-            padding: 20px;
-            text-align: center;
-        }
-        .gene-name {
-            font-size: 1.5em;
-            font-weight: bold;
-            margin-bottom: 10px;
-        }
-        .prediction-score {
-            font-size: 2em;
-            font-weight: bold;
-        }
-        .gene-body {
-            padding: 20px;
-        }
-        .shap-thumbnail {
-            width: 100%;
-            max-width: 300px;
-            height: 200px;
-            object-fit: cover;
-            border-radius: 5px;
-            margin-bottom: 15px;
-            cursor: pointer;
-            border: 2px solid #ddd;
-            transition: border-color 0.3s ease;
-        }
-        .shap-thumbnail:hover {
-            border-color: #4CAF50;
-        }
-        .feature-list {
-            margin: 15px 0;
-        }
-        .feature-item {
-            display: flex;
-            justify-content: space-between;
-            margin: 8px 0;
-            padding: 8px;
-            background: #f8f9fa;
-            border-radius: 4px;
-        }
-        .feature-positive {
-            border-left: 4px solid #28a745;
-        }
-        .feature-negative {
-            border-left: 4px solid #dc3545;
-        }
-        .links-section {
-            background: white;
-            padding: 30px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            margin-top: 40px;
-        }
-        .links-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-        }
-        .link-card {
-            text-align: center;
-            padding: 20px;
-            border: 2px solid #e9ecef;
-            border-radius: 8px;
-            transition: all 0.3s ease;
-        }
-        .link-card:hover {
-            border-color: #4CAF50;
-            background-color: #f8f9fa;
-        }
-        .link-card a {
-            text-decoration: none;
-            color: #2c3e50;
-            font-weight: bold;
-        }
-        .timestamp {
-            text-align: center;
-            color: #7f8c8d;
-            margin-top: 30px;
-            font-size: 0.9em;
-        }
-    </style>
+  <meta charset="utf-8" />
+  <title>oncotarget-lite overview</title>
+  <style>
+    body {{ font-family: Arial, sans-serif; margin: 2rem; max-width: 960px; }}
+    table {{ border-collapse: collapse; margin-top: 1rem; }}
+    th, td {{ border: 1px solid #ccc; padding: 0.5rem 0.8rem; }}
+    h1 {{ margin-bottom: 0.5rem; }}
+    img {{ max-width: 480px; border: 1px solid #ddd; padding: 4px; border-radius: 4px; margin-top: 1rem; }}
+  </style>
 </head>
 <body>
-    <div class="header">
-        <h1>🎯 Oncotarget-lite Target Scorecard</h1>
-        <p>Interpretable ML predictions for immunotherapy target prioritization</p>
-    </div>
-
-    <div class="metrics-overview">
-        <div class="metric-card">
-            <div class="metric-value">{{ "%.3f"|format(metrics.test_auroc) }}</div>
-            <div class="metric-label">Test AUROC</div>
-        </div>
-        <div class="metric-card">
-            <div class="metric-value">{{ "%.3f"|format(metrics.test_average_precision) }}</div>
-            <div class="metric-label">Average Precision</div>
-        </div>
-        <div class="metric-card">
-            <div class="metric-value">{{ "%.3f"|format(metrics.brier_score) }}</div>
-            <div class="metric-label">Brier Score</div>
-        </div>
-        <div class="metric-card">
-            <div class="metric-value">{{ "%.3f"|format(metrics.ece) }}</div>
-            <div class="metric-label">ECE</div>
-        </div>
-    </div>
-
-    <h2 style="text-align: center; margin-bottom: 30px;">🧬 Example Gene Predictions</h2>
-    
-    <div class="gene-cards">
-        {% for gene_data in genes %}
-        <div class="gene-card">
-            <div class="gene-header">
-                <div class="gene-name">{{ gene_data.name }}</div>
-                <div class="prediction-score">{{ "%.2f"|format(gene_data.score) }}</div>
-                <div style="font-size: 0.9em; opacity: 0.9;">
-                    Rank: {{ gene_data.rank }} / {{ gene_data.total }} 
-                    ({{ "%.1f"|format(gene_data.percentile) }}th percentile)
-                </div>
-            </div>
-            <div class="gene-body">
-                <img src="{{ gene_data.shap_image }}" 
-                     alt="SHAP explanation for {{ gene_data.name }}" 
-                     class="shap-thumbnail"
-                     onclick="window.open('{{ gene_data.shap_image }}', '_blank')">
-                
-                <h4>🔺 Top Positive Features</h4>
-                <div class="feature-list">
-                    {% for feature, value in gene_data.top_positive %}
-                    <div class="feature-item feature-positive">
-                        <span>{{ feature }}</span>
-                        <span>+{{ "%.3f"|format(value) }}</span>
-                    </div>
-                    {% endfor %}
-                </div>
-                
-                <h4>🔻 Top Negative Features</h4>
-                <div class="feature-list">
-                    {% for feature, value in gene_data.top_negative %}
-                    <div class="feature-item feature-negative">
-                        <span>{{ feature }}</span>
-                        <span>{{ "%.3f"|format(value) }}</span>
-                    </div>
-                    {% endfor %}
-                </div>
-            </div>
-        </div>
-        {% endfor %}
-    </div>
-
-    <div class="links-section">
-        <h2 style="text-align: center; margin-bottom: 30px;">📊 Additional Resources</h2>
-        <div class="links-grid">
-            <div class="link-card">
-                <a href="./shap/global_summary.png" target="_blank">
-                    📈 Global SHAP Summary
-                </a>
-            </div>
-            <div class="link-card">
-                <a href="./metrics.json" target="_blank">
-                    📊 Full Metrics Report
-                </a>
-            </div>
-            <div class="link-card">
-                <a href="./calibration_curve.png" target="_blank">
-                    📏 Calibration Analysis
-                </a>
-            </div>
-            <div class="link-card">
-                <a href="./model_card.md" target="_blank">
-                    📋 Model Card
-                </a>
-            </div>
-            {% if mlflow_run %}
-            <div class="link-card">
-                <a href="{{ mlflow_run }}" target="_blank">
-                    🔬 MLflow Run
-                </a>
-            </div>
-            {% endif %}
-        </div>
-    </div>
-
-    <div class="timestamp">
-        Generated on {{ timestamp }} | Oncotarget-lite v0.2.0
-    </div>
+  <h1>oncotarget-lite Overview</h1>
+  <p>Key evaluation metrics with 95% confidence intervals.</p>
+  {_metric_table_html(metrics, bootstrap)}
+  <p>
+    <a href="{scorecard_rel}">Target scorecard</a> ·
+    <a href="{model_card_rel}">Responsible AI model card</a>
+    {('· <a href="' + mlflow_ref + '">MLflow run</a>' ) if mlflow_ref else ''}
+  </p>
+  <h2>Calibration</h2>
+  <p>Reliability curve from `reports/calibration_plot.png`.</p>
+  <img src="{calibration_plot}" alt="Calibration curve" />
 </body>
 </html>
 """
 
-
-def generate_target_scorecard(
-    reports_dir: Path,
-    mlflow_run_id: Optional[str] = None
-) -> Path:
-    """Generate HTML target scorecard with SHAP explanations."""
-    
-    # Load metrics and results
-    try:
-        metrics = load_json(reports_dir / "metrics.json")
-    except FileNotFoundError:
-        metrics = {
-            "test_auroc": 0.800,
-            "test_average_precision": 0.750,
-            "brier_score": 0.200,
-            "ece": 0.100
-        }
-    
-    # Mock gene data (in real implementation, would load from SHAP results)
-    genes = [
-        {
-            "name": "GENE1",
-            "score": 0.85,
-            "rank": 5,
-            "total": 50,
-            "percentile": 90.0,
-            "shap_image": "./shap/example_GENE1.png",
-            "top_positive": [
-                ("tumor_vs_normal_BRCA", 0.124),
-                ("molecular_weight", 0.089),
-                ("transmembrane", 0.067)
-            ],
-            "top_negative": [
-                ("dependency_score", -0.156),
-                ("is_essential", -0.089)
-            ]
-        },
-        {
-            "name": "GENE2",
-            "score": 0.72,
-            "rank": 15,
-            "total": 50,
-            "percentile": 70.0,
-            "shap_image": "./shap/example_GENE2.png",
-            "top_positive": [
-                ("tumor_vs_normal_LUAD", 0.098),
-                ("signal_peptide", 0.078),
-                ("molecular_weight", 0.045)
-            ],
-            "top_negative": [
-                ("dependency_score", -0.123),
-                ("tumor_vs_normal_COAD", -0.067)
-            ]
-        },
-        {
-            "name": "GENE3", 
-            "score": 0.43,
-            "rank": 35,
-            "total": 50,
-            "percentile": 30.0,
-            "shap_image": "./shap/example_GENE3.png",
-            "top_positive": [
-                ("transmembrane", 0.067),
-                ("molecular_weight", 0.034)
-            ],
-            "top_negative": [
-                ("dependency_score", -0.189),
-                ("tumor_vs_normal_BRCA", -0.123),
-                ("is_essential", -0.089)
-            ]
-        }
-    ]
-    
-    # Prepare template context
-    context = {
-        "metrics": metrics,
-        "genes": genes,
-        "mlflow_run": f"./mlruns/{mlflow_run_id}" if mlflow_run_id else None,
-        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
-    }
-    
-    # Render template
-    template = Template(SCORECARD_TEMPLATE)
-    html_content = template.render(**context)
-    
-    # Save HTML file
-    scorecard_path = reports_dir / "target_scorecard.html"
-    with open(scorecard_path, 'w', encoding='utf-8') as f:
-        f.write(html_content)
-    
-    return scorecard_path
-
-
-def capture_streamlit_snapshot(
-    output_dir: Path,
-    port: int = 8501,
-    timeout: int = 30
-) -> Path:
-    """Capture screenshot of Streamlit app using Playwright."""
-    
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        raise ImportError("Playwright not installed. Install with: pip install playwright && playwright install")
-    
-    # Launch Streamlit app
-    streamlit_cmd = [
-        "streamlit", "run", 
-        "app/streamlit_app.py",  # Assuming existing app location
-        "--server.headless=true",
-        f"--server.port={port}",
-        "--server.enableCORS=false"
-    ]
-    
-    process = None
-    try:
-        # Start Streamlit
-        process = subprocess.Popen(
-            streamlit_cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
-        )
-        
-        # Wait for app to start
-        time.sleep(10)
-        
-        # Capture screenshot
-        with sync_playwright() as p:
-            browser = p.chromium.launch()
-            page = browser.new_page()
-            
-            # Navigate to app
-            page.goto(f"http://localhost:{port}")
-            
-            # Wait for content to load
-            page.wait_for_timeout(5000)
-            
-            # Take screenshot
-            screenshot_path = output_dir / "streamlit_demo.png"
-            page.screenshot(path=screenshot_path, full_page=True)
-            
-            browser.close()
-        
-        return screenshot_path
-        
-    except Exception as e:
-        print(f"Error capturing screenshot: {e}")
-        # Create placeholder image
-        import matplotlib.pyplot as plt
-        fig, ax = plt.subplots(figsize=(12, 8))
-        ax.text(0.5, 0.5, 'Streamlit Demo\n(Screenshot failed)', 
-                ha='center', va='center', fontsize=20,
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="lightcoral"))
-        ax.set_xlim(0, 1)
-        ax.set_ylim(0, 1)
-        ax.axis('off')
-        placeholder_path = output_dir / "streamlit_demo.png"
-        plt.savefig(placeholder_path, dpi=120, bbox_inches='tight')
-        plt.close()
-        return placeholder_path
-        
-    finally:
-        # Clean up Streamlit process
-        if process:
-            process.terminate()
-            time.sleep(2)
-            if process.poll() is None:
-                process.kill()
+    ensure_dir(docs_dir)
+    output_path = docs_dir / "index.html"
+    write_text(output_path, html)
+    metrics_table_md = _metric_table_markdown(metrics, bootstrap)
+    _update_model_card(model_card, metrics_table_md)
+    _update_readme(metrics_table_md)
+    return output_path

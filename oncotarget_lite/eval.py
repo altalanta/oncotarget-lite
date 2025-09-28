@@ -1,232 +1,274 @@
-"""Enhanced evaluation with bootstrap CIs, calibration, and overfitting checks."""
+"""Evaluation utilities for calibration-aware reporting."""
 
+from __future__ import annotations
+
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Callable
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from sklearn.calibration import calibration_curve
-from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_score, roc_curve
-from sklearn.utils import resample
+from sklearn.metrics import (
+    accuracy_score,
+    average_precision_score,
+    brier_score_loss,
+    f1_score,
+    precision_recall_curve,
+    roc_auc_score,
+    roc_curve,
+)
 
-from .utils import save_json, set_random_seed
+from .utils import ensure_dir, load_dataframe, save_dataframe, save_json, set_seeds
 
-
-def bootstrap_metrics(
-    y_true: np.ndarray,
-    y_pred_proba: np.ndarray,
-    n_bootstrap: int = 1000,
-    random_state: int = 42
-) -> Dict[str, Dict[str, float]]:
-    """Compute bootstrap confidence intervals for metrics."""
-    
-    set_random_seed(random_state)
-    
-    auroc_scores = []
-    ap_scores = []
-    
-    for i in range(n_bootstrap):
-        # Bootstrap sample
-        indices = resample(range(len(y_true)), random_state=random_state + i)
-        y_boot = y_true[indices]
-        pred_boot = y_pred_proba[indices]
-        
-        # Skip if bootstrap sample has only one class
-        if len(np.unique(y_boot)) < 2:
-            continue
-            
-        auroc_scores.append(roc_auc_score(y_boot, pred_boot))
-        ap_scores.append(average_precision_score(y_boot, pred_boot))
-    
-    def compute_ci(scores: List[float]) -> Dict[str, float]:
-        return {
-            "mean": np.mean(scores),
-            "std": np.std(scores),
-            "ci_lower": np.percentile(scores, 2.5),
-            "ci_upper": np.percentile(scores, 97.5)
-        }
-    
-    return {
-        "auroc": compute_ci(auroc_scores),
-        "average_precision": compute_ci(ap_scores)
-    }
+REPORTS_DIR = Path("reports")
 
 
-def compute_calibration_metrics(
-    y_true: np.ndarray,
-    y_pred_proba: np.ndarray,
-    n_bins: int = 10
-) -> Dict[str, Any]:
-    """Compute calibration metrics (Brier score, ECE)."""
-    
-    # Brier score
-    brier_score = brier_score_loss(y_true, y_pred_proba)
-    
-    # Expected Calibration Error (ECE)
-    bin_boundaries = np.linspace(0, 1, n_bins + 1)
-    bin_lowers = bin_boundaries[:-1]
-    bin_uppers = bin_boundaries[1:]
-    
+@dataclass(slots=True)
+class MetricSummary:
+    auroc: float
+    ap: float
+    brier: float
+    ece: float
+    accuracy: float
+    f1: float
+    train_auroc: float
+    test_auroc: float
+    overfit_gap: float
+
+
+@dataclass(slots=True)
+class BootstrapCI:
+    mean: float
+    lower: float
+    upper: float
+
+
+@dataclass(slots=True)
+class EvaluationArtifacts:
+    metrics: MetricSummary
+    auroc_ci: BootstrapCI
+    ap_ci: BootstrapCI
+    calibration_bins: pd.DataFrame
+
+
+def _expected_calibration_error(y_true: np.ndarray, y_prob: np.ndarray, bins: int = 10) -> tuple[float, pd.DataFrame]:
+    bin_edges = np.linspace(0.0, 1.0, bins + 1)
+    bin_indices = np.digitize(y_prob, bin_edges, right=True)
+    rows = []
     ece = 0.0
-    calibration_data = []
-    
-    for bin_lower, bin_upper in zip(bin_lowers, bin_uppers):
-        # Select predictions in this bin
-        in_bin = (y_pred_proba > bin_lower) & (y_pred_proba <= bin_upper)
-        prop_in_bin = in_bin.mean()
-        
-        if prop_in_bin > 0:
-            accuracy_in_bin = y_true[in_bin].mean()
-            avg_confidence_in_bin = y_pred_proba[in_bin].mean()
-            ece += np.abs(avg_confidence_in_bin - accuracy_in_bin) * prop_in_bin
-            
-            calibration_data.append({
-                "bin_lower": bin_lower,
-                "bin_upper": bin_upper,
-                "accuracy": accuracy_in_bin,
-                "confidence": avg_confidence_in_bin,
-                "count": in_bin.sum()
+    for bin_idx in range(1, bins + 1):
+        mask = bin_indices == bin_idx
+        if not np.any(mask):
+            rows.append({
+                "bin": bin_idx,
+                "count": 0,
+                "confidence": float((bin_edges[bin_idx - 1] + bin_edges[bin_idx]) / 2),
+                "accuracy": float("nan"),
             })
-    
-    return {
-        "brier_score": brier_score,
-        "ece": ece,
-        "calibration_curve": calibration_data
-    }
+            continue
+        bin_true = y_true[mask]
+        bin_prob = y_prob[mask]
+        bin_acc = float(np.mean(bin_true))
+        bin_conf = float(np.mean(bin_prob))
+        rows.append({
+            "bin": bin_idx,
+            "count": int(mask.sum()),
+            "confidence": bin_conf,
+            "accuracy": bin_acc,
+        })
+        ece += abs(bin_acc - bin_conf) * mask.sum()
+    ece /= len(y_true)
+    calibration = pd.DataFrame(rows)
+    return float(ece), calibration
 
 
-def plot_calibration_curve(
+def _bootstrap_ci(
     y_true: np.ndarray,
-    y_pred_proba: np.ndarray,
-    output_path: Path,
-    n_bins: int = 10
-) -> None:
-    """Plot reliability diagram for calibration."""
-    
-    fraction_of_positives, mean_predicted_value = calibration_curve(
-        y_true, y_pred_proba, n_bins=n_bins
+    y_prob: np.ndarray,
+    metric_fn: Callable[[np.ndarray, np.ndarray], float],
+    *,
+    n_bootstrap: int,
+    ci: float,
+    seed: int,
+) -> BootstrapCI:
+    set_seeds(seed)
+    rng = np.random.default_rng(seed)
+    scores = []
+    n = len(y_true)
+    for _ in range(n_bootstrap):
+        indices = rng.integers(0, n, size=n)
+        sample_true = y_true[indices]
+        sample_prob = y_prob[indices]
+        try:
+            score = metric_fn(sample_true, sample_prob)
+        except ValueError:
+            continue
+        scores.append(score)
+    if not scores:
+        value = metric_fn(y_true, y_prob)
+        return BootstrapCI(mean=value, lower=value, upper=value)
+    scores_arr = np.array(scores)
+    value = float(scores_arr.mean())
+    alpha = (1 - ci) / 2
+    lower = float(np.quantile(scores_arr, alpha))
+    upper = float(np.quantile(scores_arr, 1 - alpha))
+    return BootstrapCI(mean=value, lower=lower, upper=upper)
+
+
+def evaluate_predictions(
+    *,
+    reports_dir: Path = REPORTS_DIR,
+    n_bootstrap: int = 1000,
+    ci: float = 0.95,
+    bins: int = 10,
+    seed: int = 42,
+) -> EvaluationArtifacts:
+    """Compute calibration-aware metrics for saved predictions."""
+
+    predictions_path = reports_dir / "predictions.parquet"
+    if not predictions_path.exists():
+        raise FileNotFoundError("predictions.parquet not found; run train before eval")
+
+    preds = load_dataframe(predictions_path)
+    train_preds = preds[preds["split"] == "train"]
+    test_preds = preds[preds["split"] == "test"]
+
+    for frame in (train_preds, test_preds):
+        if frame.empty:
+            raise ValueError("Missing train or test predictions for evaluation")
+
+    train_true = train_preds["y_true"].to_numpy()
+    train_prob = train_preds["y_prob"].to_numpy()
+    test_true = test_preds["y_true"].to_numpy()
+    test_prob = test_preds["y_prob"].to_numpy()
+
+    auroc_test = float(roc_auc_score(test_true, test_prob))
+    ap_test = float(average_precision_score(test_true, test_prob))
+    brier = float(brier_score_loss(test_true, test_prob))
+    accuracy = float(accuracy_score(test_true, test_prob >= 0.5))
+    f1 = float(f1_score(test_true, test_prob >= 0.5))
+    ece, calibration = _expected_calibration_error(test_true, test_prob, bins=bins)
+
+    auroc_ci = _bootstrap_ci(
+        test_true,
+        test_prob,
+        roc_auc_score,
+        n_bootstrap=n_bootstrap,
+        ci=ci,
+        seed=seed,
     )
-    
-    fig, ax = plt.subplots(figsize=(8, 6))
-    
-    # Plot perfect calibration line
-    ax.plot([0, 1], [0, 1], 'k--', label='Perfect calibration')
-    
-    # Plot calibration curve
-    ax.plot(mean_predicted_value, fraction_of_positives, 's-', 
-            label='Model calibration', markersize=8)
-    
-    ax.set_xlabel('Mean Predicted Probability')
-    ax.set_ylabel('Fraction of Positives')
-    ax.set_title('Calibration Plot (Reliability Diagram)')
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=120, bbox_inches='tight')
-    plt.close()
+    ap_ci = _bootstrap_ci(
+        test_true,
+        test_prob,
+        average_precision_score,
+        n_bootstrap=n_bootstrap,
+        ci=ci,
+        seed=seed + 1,
+    )
 
+    metrics = MetricSummary(
+        auroc=auroc_test,
+        ap=ap_test,
+        brier=brier,
+        ece=ece,
+        accuracy=accuracy,
+        f1=f1,
+        train_auroc=float(roc_auc_score(train_true, train_prob)),
+        test_auroc=auroc_test,
+        overfit_gap=float(abs(roc_auc_score(train_true, train_prob) - auroc_test)),
+    )
 
-def plot_roc_pr_curves(
-    y_true: np.ndarray,
-    y_pred_proba: np.ndarray,
-    output_path: Path
-) -> None:
-    """Plot ROC and PR curves."""
-    
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
-    
-    # ROC curve
-    fpr, tpr, _ = roc_curve(y_true, y_pred_proba)
-    auroc = roc_auc_score(y_true, y_pred_proba)
-    
-    ax1.plot(fpr, tpr, linewidth=2, label=f'ROC Curve (AUC = {auroc:.3f})')
-    ax1.plot([0, 1], [0, 1], 'k--', alpha=0.5)
-    ax1.set_xlabel('False Positive Rate')
-    ax1.set_ylabel('True Positive Rate')
-    ax1.set_title('ROC Curve')
-    ax1.legend()
-    ax1.grid(True, alpha=0.3)
-    
-    # PR curve
-    from sklearn.metrics import precision_recall_curve
-    precision, recall, _ = precision_recall_curve(y_true, y_pred_proba)
-    ap = average_precision_score(y_true, y_pred_proba)
-    
-    ax2.plot(recall, precision, linewidth=2, label=f'PR Curve (AP = {ap:.3f})')
-    ax2.axhline(y=y_true.mean(), color='k', linestyle='--', alpha=0.5, 
-                label=f'Baseline ({y_true.mean():.3f})')
-    ax2.set_xlabel('Recall')
-    ax2.set_ylabel('Precision')
-    ax2.set_title('Precision-Recall Curve')
-    ax2.legend()
-    ax2.grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=120, bbox_inches='tight')
-    plt.close()
-
-
-def comprehensive_evaluation(
-    model: Any,
-    X_train: pd.DataFrame,
-    y_train: pd.Series,
-    X_test: pd.DataFrame,
-    y_test: pd.Series,
-    output_dir: Path,
-    model_type: str = "sklearn"
-) -> Dict[str, Any]:
-    """Run comprehensive evaluation with all metrics and plots."""
-    
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Get predictions
-    if model_type == "mlp":
-        import torch
-        model.eval()
-        with torch.no_grad():
-            train_proba = torch.sigmoid(model(torch.FloatTensor(X_train.values))).numpy().flatten()
-            test_proba = torch.sigmoid(model(torch.FloatTensor(X_test.values))).numpy().flatten()
-    else:  # sklearn model
-        train_proba = model.predict_proba(X_train)[:, 1]
-        test_proba = model.predict_proba(X_test)[:, 1]
-    
-    # Basic metrics
-    train_auroc = roc_auc_score(y_train, train_proba)
-    test_auroc = roc_auc_score(y_test, test_proba)
-    test_ap = average_precision_score(y_test, test_proba)
-    
-    # Bootstrap confidence intervals
-    bootstrap_results = bootstrap_metrics(y_test.values, test_proba)
-    
-    # Calibration metrics
-    calibration_results = compute_calibration_metrics(y_test.values, test_proba)
-    
-    # Overfitting check
-    auroc_gap = train_auroc - test_auroc
-    
-    # Generate plots
-    plot_roc_pr_curves(y_test.values, test_proba, output_dir / "roc_pr_curves.png")
-    plot_calibration_curve(y_test.values, test_proba, output_dir / "calibration_curve.png")
-    
-    # Compile results
-    results = {
-        "metrics": {
-            "train_auroc": train_auroc,
-            "test_auroc": test_auroc,
-            "test_average_precision": test_ap,
-            "auroc_gap": auroc_gap,
-            "brier_score": calibration_results["brier_score"],
-            "ece": calibration_results["ece"]
+    ensure_dir(reports_dir)
+    save_json(
+        reports_dir / "metrics.json",
+        {
+            "auroc": metrics.auroc,
+            "auroc_ci": [auroc_ci.lower, auroc_ci.upper],
+            "ap": metrics.ap,
+            "ap_ci": [ap_ci.lower, ap_ci.upper],
+            "brier": metrics.brier,
+            "ece": metrics.ece,
+            "accuracy": metrics.accuracy,
+            "f1": metrics.f1,
+            "train_auroc": metrics.train_auroc,
+            "test_auroc": metrics.test_auroc,
+            "overfit_gap": metrics.overfit_gap,
         },
-        "bootstrap": bootstrap_results,
-        "calibration": calibration_results
-    }
-    
-    # Save results
-    save_json(results["metrics"], output_dir / "metrics.json")
-    save_json(results["bootstrap"], output_dir / "bootstrap.json")
-    save_json(results["calibration"], output_dir / "calibration.json")
-    
-    return results
+    )
+    save_json(
+        reports_dir / "bootstrap.json",
+        {
+            "auroc": {
+                "mean": auroc_ci.mean,
+                "lower": auroc_ci.lower,
+                "upper": auroc_ci.upper,
+                "n_bootstrap": n_bootstrap,
+                "confidence": ci,
+            },
+            "ap": {
+                "mean": ap_ci.mean,
+                "lower": ap_ci.lower,
+                "upper": ap_ci.upper,
+                "n_bootstrap": n_bootstrap,
+                "confidence": ci,
+            },
+        },
+    )
+    save_dataframe(reports_dir / "calibration.csv", calibration, index=False)
+    save_json(
+        reports_dir / "calibration.json",
+        calibration.fillna(0).to_dict(orient="list"),
+    )
+
+    _plot_curves(test_true, test_prob, calibration, reports_dir)
+
+    return EvaluationArtifacts(
+        metrics=metrics,
+        auroc_ci=auroc_ci,
+        ap_ci=ap_ci,
+        calibration_bins=calibration,
+    )
+
+
+def _plot_curves(
+    y_true: np.ndarray,
+    y_prob: np.ndarray,
+    calibration: pd.DataFrame,
+    reports_dir: Path,
+) -> None:
+    ensure_dir(reports_dir)
+
+    fpr, tpr, _ = roc_curve(y_true, y_prob)
+    precision, recall, _ = precision_recall_curve(y_true, y_prob)
+
+    fig, ax = plt.subplots(figsize=(4, 4))
+    ax.plot(fpr, tpr, label=f"ROC (AUROC={roc_auc_score(y_true, y_prob):.2f})")
+    ax.plot([0, 1], [0, 1], linestyle="--", color="grey")
+    ax.set_xlabel("False Positive Rate")
+    ax.set_ylabel("True Positive Rate")
+    ax.legend(loc="lower right")
+    fig.tight_layout()
+    fig.savefig(reports_dir / "roc_curve.png", dpi=150)
+    plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(4, 4))
+    ax.plot(recall, precision, label=f"PR (AP={average_precision_score(y_true, y_prob):.2f})")
+    ax.set_xlabel("Recall")
+    ax.set_ylabel("Precision")
+    ax.legend(loc="lower left")
+    fig.tight_layout()
+    fig.savefig(reports_dir / "pr_curve.png", dpi=150)
+    plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(4, 4))
+    ax.plot([0, 1], [0, 1], linestyle="--", color="grey", label="perfect")
+    valid = calibration.dropna()
+    ax.plot(valid["confidence"], valid["accuracy"], marker="o", label="model")
+    ax.set_xlabel("Confidence")
+    ax.set_ylabel("Observed Frequency")
+    ax.set_title("Reliability Curve")
+    ax.legend(loc="upper left")
+    fig.tight_layout()
+    fig.savefig(reports_dir / "calibration_plot.png", dpi=150)
+    plt.close(fig)
