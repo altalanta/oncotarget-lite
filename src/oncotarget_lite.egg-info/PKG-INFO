@@ -1,0 +1,191 @@
+Metadata-Version: 2.4
+Name: oncotarget-lite
+Version: 0.3.1.dev0+g69b7921c4.d20250927
+Summary: Lean oncology target triage toolkit
+Author: Altalanta ML Platform
+License: MIT License
+        
+        Copyright (c) 2024 Your Name
+        
+        Permission is hereby granted, free of charge, to any person obtaining a copy
+        of this software and associated documentation files (the "Software"), to deal
+        in the Software without restriction, including without limitation the rights
+        to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+        copies of the Software, and to permit persons to whom the Software is
+        furnished to do so, subject to the following conditions:
+        
+        The above copyright notice and this permission notice shall be included in all
+        copies or substantial portions of the Software.
+        
+        THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+        IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+        FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+        AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+        LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+        OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+        SOFTWARE.
+        
+Classifier: Development Status :: 4 - Beta
+Classifier: Intended Audience :: Science/Research
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Topic :: Scientific/Engineering :: Bio-Informatics
+Classifier: Topic :: Scientific/Engineering :: Artificial Intelligence
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: numpy>=1.24
+Requires-Dist: pandas>=2.1
+Requires-Dist: pydantic>=2.5
+Requires-Dist: polars>=0.20
+Requires-Dist: pyarrow>=15.0
+Requires-Dist: pyyaml>=6.0
+Requires-Dist: torch>=2.2
+Requires-Dist: typer>=0.9
+Provides-Extra: viz
+Requires-Dist: streamlit>=1.33; extra == "viz"
+Requires-Dist: shap>=0.42; extra == "viz"
+Provides-Extra: dev
+Requires-Dist: mkdocs>=1.5; extra == "dev"
+Requires-Dist: mkdocs-material>=9.5; extra == "dev"
+Requires-Dist: mypy>=1.8; extra == "dev"
+Requires-Dist: pytest>=7.4; extra == "dev"
+Requires-Dist: pytest-cov>=4.1; extra == "dev"
+Requires-Dist: ruff>=0.2; extra == "dev"
+Requires-Dist: types-PyYAML>=6.0; extra == "dev"
+Dynamic: license-file
+
+# oncotarget-lite
+
+![PyPI](https://img.shields.io/badge/PyPI-coming%20soon-lightgrey)
+[![CI](https://github.com/altalanta/oncotarget-lite/actions/workflows/ci.yml/badge.svg)](https://github.com/altalanta/oncotarget-lite/actions/workflows/ci.yml)
+![Coverage](https://img.shields.io/badge/coverage-%E2%89%A590%25-brightgreen)
+[![Docs](https://img.shields.io/badge/docs-mkdocs%20material-2e7dd7)](https://altalanta.github.io/oncotarget-lite)
+
+Lean, laptop-first pipeline for immunotherapy target triage. The project hardens packaging, observability, and reproducibility without changing the original scientific intent.
+
+- ✅ **Installable package** (`pip install oncotarget-lite`) with extras for docs/tests (`[dev]`) and the Streamlit app (`[viz]`).
+- ✅ **Deterministic ML stack**: schema checks → feature engineering → interpretable scorecard → PyTorch MLP → AUROC/AUPRC/Brier/ECE with bootstrap CIs.
+- ✅ **Governed artifacts**: JSON metrics, Parquet predictions & feature importances, lineage metadata (inputs, git SHA, params, environment).
+- ✅ **Structured logging** with run + lineage identifiers and optional MLflow toggle via `ONCOTARGET_LITE_MLFLOW=1`.
+- ✅ **Docs & CI**: MkDocs Material site, Ruff → Mypy → Pytest (Py3.10–3.12) → wheel build, ≥90% coverage gate.
+
+The synthetic CSV caches ship with the repo so every workflow runs fully offline in under two minutes on a CPU laptop.
+
+## Quickstart
+
+```bash
+python -m pip install --upgrade pip
+pip install oncotarget-lite[viz]
+
+oncotarget-lite system-info
+oncotarget-lite validate-data
+oncotarget-lite train --device cpu --out artifacts/
+# copy the "artifacts" path from the JSON output
+oncotarget-lite evaluate --run-dir artifacts/<run_id>
+oncotarget-lite report --run-dir artifacts/<run_id>
+```
+
+Streamlit explorer:
+
+```bash
+oncotarget-lite app run --port 8501
+```
+
+For development checkout:
+
+```bash
+git clone https://github.com/altalanta/oncotarget-lite.git
+cd oncotarget-lite
+pip install -e .[dev,viz]
+```
+
+## CLI at a glance
+
+| Command | Purpose |
+| --- | --- |
+| `system-info` | Python + library versions, CUDA availability |
+| `config --show/--validate` | Inspect or validate YAML config |
+| `validate-data` | Enforce Pydantic/polars data contracts |
+| `train` | Run end-to-end pipeline, write artifacts + lineage |
+| `evaluate` | Recompute metrics from `predictions.parquet` |
+| `report` | Summarise metrics + top-ranked targets |
+| `app run` | Launch Streamlit explorer (requires `[viz]`) |
+
+All commands accept `--config-file` overrides and emit JSON by default (TTY modes include compact tables for readability).
+
+## Pipeline Outputs
+
+Running `oncotarget-lite train` produces:
+
+- `metrics.json` – AUROC/AUPRC/Brier/ECE with 95% bootstrap CIs and calibration bins.
+- `predictions.parquet` – train/test probabilities and labels.
+- `feature_importances.parquet` – first-layer weight attribution.
+- `scores.parquet` – interpretable scorecard contributions + rank.
+- `lineage.json` – input SHA256 hashes, git SHA, params, environment.
+- `model.pt` – MLP state dict aligned with saved feature order.
+
+Each run is deterministic when seeds are fixed (data splits, model init, bootstrap resampling).
+
+## Data & Features
+
+Synthetic caches emulate GTEx, TCGA, DepMap, UniProt, and STRING summary statistics for ~50 genes. Schema validation blocks missing columns, negative expression values, empty dependency dictionaries, or inconsistent annotations before training executes.
+
+Feature engineering derives:
+
+- Log2 fold-change per tumour vs. mean normal expression (`log2fc_*`).
+- Minimum normal TPM, mean tumour TPM, and mean dependency scores.
+- Protein annotations (signal peptide, Ig-like domain, protein length) plus PPI degree.
+- Binary labels describing cell-surface localisation.
+
+## Tests & Quality Gates
+
+```bash
+make lint    # ruff + mypy
+make test    # pytest --cov ≥90%
+```
+
+CI (`.github/workflows/ci.yml`) runs lint → mypy → tests (Py3.10, 3.11, 3.12) → wheel build. Coverage thresholds are enforced via pytest-cov and the workflow uploads coverage XML for badge generation.
+
+## Documentation
+
+MkDocs Material site: <https://altalanta.github.io/oncotarget-lite>
+
+- Overview & architecture diagram
+- Quickstart (exact CLI commands)
+- Data schema reference
+- CLI reference & limits
+- Reproduce-the-figures notebook snippets
+- Tiny model card summarising the MLP
+
+Run locally with `make docs-serve` (requires `[dev]`).
+
+## Docker
+
+Multi-stage image builds a wheel in an isolated layer and ships a slim runtime with a non-root user, healthcheck, and Streamlit entrypoint:
+
+```bash
+make docker-build
+docker run -p 8501:8501 oncotarget-lite:latest
+```
+
+## Release plan (v0.3.0)
+
+1. Ensure CI is green and coverage ≥90%.
+2. Build artifacts: `python -m build` (wheel + sdist).
+3. Tag `v0.3.0` and push the tag.
+4. Create a GitHub Release attaching the wheel/sdist.
+5. Optional PyPI publish: `python -m twine upload dist/*` (replace the PyPI badge once live).
+
+## Limits
+
+- Synthetic data only – not suitable for biological decisions.
+- Toy MLP sized for CPU laptops; no GPU-specific optimisations.
+- Scorecard weights are pedagogical heuristics, not safety guarantees.
+- Confidence intervals use simple bootstrap resampling of a small dataset.
+- Optional MLflow logging is disabled by default to keep everything offline.
+

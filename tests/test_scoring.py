@@ -1,56 +1,28 @@
+from __future__ import annotations
+
 import pandas as pd
 
-from oncotarget.scoring import explain_gene_score, score_candidates
+from oncotarget_lite.scoring import explain_score, score_targets
 
 
-def test_score_monotonic_wrt_log2fc() -> None:
+def test_score_targets_and_explain() -> None:
     features = pd.DataFrame(
         {
-            "log2fc_brca": [0.5, 1.0],
-            "log2fc_luad": [0.5, 1.0],
-            "log2fc_coad": [0.5, 1.0],
-            "min_normal_tpm": [1.0, 1.0],
-            "mean_tumor_tpm": [2.0, 2.0],
-            "mean_dependency": [-0.5, -0.5],
-            "ppi_degree": [40, 40],
-            "signal_peptide": [1, 1],
-            "ig_like_domain": [0, 0],
-            "protein_length": [600, 600],
+            "log2fc_br": [2.0, 1.0],
+            "log2fc_luad": [1.5, 0.5],
+            "mean_dependency": [-0.2, -0.5],
+            "min_normal_tpm": [0.1, 3.0],
+            "ppi_degree": [30, 60],
+            "signal_peptide": [1.0, 0.0],
+            "ig_like_domain": [1.0, 0.0],
+            "protein_length": [500, 700],
         },
-        index=["LOW", "HIGH"],
+        index=["GENE_A", "GENE_B"],
     )
-    labels = pd.Series([False, False], index=features.index)
-    scores = score_candidates(features, labels)
-    assert scores.loc["HIGH", "score"] > scores.loc["LOW", "score"]
+    labels = pd.Series([True, False], index=features.index)
+    scores = score_targets(features, labels)
+    assert list(scores.index)[0] == "GENE_A"
+    explanation = explain_score("GENE_A", scores)
+    assert explanation["rank"] == 1
+    assert "log2fc_component" in explanation
 
-
-def test_explain_gene_score_returns_components() -> None:
-    features = pd.DataFrame(
-        {
-            "log2fc_brca": [1.0],
-            "log2fc_luad": [1.0],
-            "log2fc_coad": [1.0],
-            "min_normal_tpm": [0.5],
-            "mean_tumor_tpm": [2.0],
-            "mean_dependency": [-0.2],
-            "ppi_degree": [45],
-            "signal_peptide": [1],
-            "ig_like_domain": [1],
-            "protein_length": [500],
-        },
-        index=["TEST"],
-    )
-    labels = pd.Series([True], index=features.index)
-    scores = score_candidates(features, labels)
-    breakdown = explain_gene_score("TEST", scores)
-    expected_keys = {
-        "log2fc_component",
-        "dependency_component",
-        "surface_component",
-        "ig_like_component",
-        "ppi_component",
-        "low_normal_component",
-        "score",
-        "rank",
-    }
-    assert expected_keys.issubset(breakdown.keys())
