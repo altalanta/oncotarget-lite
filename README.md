@@ -1,6 +1,8 @@
 # oncotarget-lite
 
 [![CI](https://github.com/altalanta/oncotarget-lite/actions/workflows/ci.yml/badge.svg)](https://github.com/altalanta/oncotarget-lite/actions/workflows/ci.yml)
+[![Release](https://github.com/altalanta/oncotarget-lite/actions/workflows/release.yml/badge.svg)](https://github.com/altalanta/oncotarget-lite/actions/workflows/release.yml)
+[![PyPI version](https://badge.fury.io/py/oncotarget-lite.svg)](https://badge.fury.io/py/oncotarget-lite)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Reproducible Run](https://img.shields.io/badge/run-deterministic-success)
 
@@ -72,6 +74,18 @@ Key files:
 ## Responsible Testing
 
 CI (GitHub Actions) executes `make all`, `make pytest`, and uploads `reports/` + `docs/` artefacts. Playwright installs Chromium headlessly for the Streamlit snapshot stage.
+
+## Releases & Packages
+
+Tag a version to publish wheels to PyPI and a container to GHCR:
+
+```bash
+git tag -a v0.1.0 -m "v0.1.0"
+git push origin v0.1.0
+```
+
+- **PyPI**: published automatically via Trusted Publishers (no API token).
+- **GHCR image**: `ghcr.io/<owner>/oncotarget-lite:0.1.0` and `:latest`.
 
 ## Acknowledgements
 
