@@ -1,23 +1,27 @@
 # syntax=docker/dockerfile:1
 
 FROM python:3.11-slim AS builder
-WORKDIR /app
-COPY pyproject.toml README.md LICENSE bandit-baseline.json /app/
-COPY src /app/src
-COPY configs /app/configs
-COPY docs /app/docs
-RUN pip install --upgrade pip build && \
-    python -m build --wheel
+ENV PIP_NO_CACHE_DIR=1 \
+    PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu
+WORKDIR /build
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*
+COPY pyproject.toml README.md requirements.txt ./
+COPY oncotarget_lite ./oncotarget_lite
+RUN python -m pip install --upgrade pip build
+RUN python -m build
 
 FROM python:3.11-slim AS runtime
-ENV PYTHONUNBUFFERED=1
-WORKDIR /workspace
-COPY --from=builder /app/dist/*.whl /tmp/histo-omics-lite.whl
-RUN useradd --create-home --shell /bin/bash appuser && \
-    pip install --upgrade pip && \
-    pip install /tmp/histo-omics-lite.whl[viz] && \
-    rm -f /tmp/histo-omics-lite.whl
-USER appuser
-ENTRYPOINT ["histo-omics-lite"]
-CMD ["--help"]
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD histo-omics-lite --help > /dev/null || exit 1
+ENV PIP_NO_CACHE_DIR=1 \
+    PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu \
+    PYTHONUNBUFFERED=1
+WORKDIR /app
+RUN groupadd --system onco && useradd --system --create-home --gid onco --shell /bin/bash onco
+COPY --from=builder /build/dist/oncotarget_lite-*.whl /tmp/package.whl
+RUN python -m pip install --upgrade pip && pip install /tmp/package.whl[viz]
+COPY data ./data
+COPY app ./app
+COPY config.example.yaml ./config.example.yaml
+USER onco
+EXPOSE 8501
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health')" || exit 1
+ENTRYPOINT ["oncotarget-lite", "app", "run", "--port", "8501"]
