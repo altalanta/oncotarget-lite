@@ -55,11 +55,17 @@ format:
 mypy:
 	$(PY) -m mypy oncotarget_lite
 
+bench:
+	$(PY) -m scripts.eval_small_benchmark
+
+docs-metrics:
+	$(PY) -m scripts.render_docs_metrics
+
 ci:
 	make all
 	make pytest
 
-.PHONY: setup prepare train evaluate explain scorecard snapshot report-docs all clean pytest lint format mypy ci
+.PHONY: setup prepare train evaluate explain scorecard snapshot report-docs all clean pytest lint format mypy ci bench docs-metrics
 
 dvc.repro:
 	dvc repro
