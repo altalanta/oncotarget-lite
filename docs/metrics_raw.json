@@ -3,7 +3,7 @@
   "n_samples": 1500,
   "n_folds": 5,
   "base_seed": 1337,
-  "git_sha": "69b7921",
+  "git_sha": "9d2fe77",
   "per_seed_metrics": [
     {
       "auroc": 0.9634666666666665,

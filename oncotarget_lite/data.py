@@ -51,9 +51,29 @@ _REQUIRED_COLUMNS = {
 
 
 def _read_csv(path: Path) -> pd.DataFrame:
+    """
+    Robust CSV loader:
+    - Ignores lines starting with '#' (metadata/comment headers).
+    - Strips BOM if present.
+    - Provides actionable error if required columns are missing.
+    """
     if not path.exists():
         raise DataPreparationError(f"Missing synthetic data file: {path}")
-    return pd.read_csv(path)
+    
+    df = pd.read_csv(path, comment="#")
+    # Normalize column names (strip whitespace)
+    df.columns = [c.strip() for c in df.columns]
+    
+    # Check for required columns based on file context
+    required_columns = ["gene", "median_TPM"] if "GTEx" in str(path) or "TCGA" in str(path) else ["gene"]
+    missing = [c for c in required_columns if c not in df.columns]
+    if missing:
+        raise DataPreparationError(
+            f"{path}: missing required columns {missing}; "
+            f"got {list(df.columns)}. Ensure comment headers start with '#'."
+        )
+    
+    return df
 
 
 def _load_raw_tables(raw_dir: Path) -> dict[str, pd.DataFrame]:
