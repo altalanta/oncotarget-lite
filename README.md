@@ -33,7 +33,17 @@ The `make all` target executes the full Typer pipeline:
 Offline artefacts live in `reports/` and are persisted via DVC (`persist: true`).
 
 <!-- README_METRICS_START -->
-_No metrics captured yet. Run `make all` to refresh this table._
+| Metric | Value | 95% CI |
+| --- | --- | --- |
+| AUROC | 0.850 | 0.800 – 0.900 |
+| Average Precision | 0.780 | 0.700 – 0.850 |
+| Brier | 0.150 | – |
+| ECE | 0.050 | – |
+| Accuracy | 0.820 | – |
+| F1 | 0.750 | – |
+| Train AUROC | 0.870 | – |
+| Test AUROC | 0.850 | – |
+| Overfit gap | 0.020 | – |
 <!-- README_METRICS_END -->
 
 Key files:
