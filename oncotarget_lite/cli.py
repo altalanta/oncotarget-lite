@@ -236,6 +236,25 @@ def docs(
 
 
 @app.command()
+def generate_data(
+    output_dir: Path = typer.Option(Path("data/raw"), dir_okay=True, help="Output directory for synthetic data"),
+) -> None:
+    """Generate synthetic development data for testing and development."""
+    import subprocess
+    import sys
+    
+    result = subprocess.run([
+        sys.executable, "scripts/generate_synthetic_data.py"
+    ], cwd=Path.cwd())
+    
+    if result.returncode == 0:
+        typer.echo(json.dumps({"status": "success", "output_dir": str(output_dir)}, indent=2))
+    else:
+        typer.echo(json.dumps({"status": "failed", "returncode": result.returncode}, indent=2))
+        raise typer.Exit(result.returncode)
+
+
+@app.command()
 def all(
     seed: int = typer.Option(42, help="Pipeline seed"),
 ) -> None:

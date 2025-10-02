@@ -14,8 +14,12 @@ $(VENV)/bin/activate: requirements.txt
 setup: $(VENV)/bin/activate
 	@echo "Virtual environment ready: $(VENV)"
 
-prepare: $(VENV)/bin/activate
-	$(PY) -m oncotarget_lite.cli prepare
+.PHONY: devdata
+devdata:
+	python scripts/generate_synthetic_data.py
+
+prepare: devdata
+	python -m oncotarget_lite.cli prepare
 
 train: prepare
 	$(PY) -m oncotarget_lite.cli train
@@ -65,7 +69,7 @@ ci:
 	make all
 	make pytest
 
-.PHONY: setup prepare train evaluate explain scorecard snapshot report-docs all clean pytest lint format mypy ci bench docs-metrics
+.PHONY: setup devdata prepare train evaluate explain scorecard snapshot report-docs all clean pytest lint format mypy ci bench docs-metrics
 
 dvc.repro:
 	dvc repro

@@ -11,7 +11,7 @@ license = { text = "MIT" }
 authors = [
   {name = "Altalanta ML Platform"}
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Science/Research",
@@ -31,7 +31,8 @@ dependencies = [
   "matplotlib==3.9.2",
   "mlflow==2.15.0",
   "dvc==3.55.2",
-  "typer==0.12.3",
+  "typer==0.9.0",
+  "click==8.1.7",
   "shap==0.46.0",
   "jinja2==3.1.4",
   "playwright==1.47.0",
@@ -49,7 +50,7 @@ dev = [
 ]
 
 [project.scripts]
-oncotarget-lite = "oncotarget_lite.cli:main"
+oncotarget-lite = "oncotarget_lite.cli:app"
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -96,3 +97,4 @@ source = ["oncotarget_lite"]
 skip_covered = true
 show_missing = true
 precision = 2
+fail_under = 7
