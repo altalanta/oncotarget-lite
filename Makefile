@@ -41,7 +41,7 @@ snapshot: report-docs
 report-docs: scorecard
 	$(PY) -m oncotarget_lite.cli docs
 
-all: setup prepare train evaluate explain scorecard report-docs snapshot
+all: setup devdata prepare train evaluate explain scorecard report-docs snapshot
 
 clean:
 	rm -rf $(VENV) mlruns models reports dvcstore docs/index.html

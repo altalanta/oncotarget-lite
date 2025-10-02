@@ -8,6 +8,8 @@ from typing import Iterable
 
 import numpy as np
 import pandas as pd
+
+REQUIRED_COLUMNS = ("gene", "median_TPM")
 from sklearn.model_selection import train_test_split
 
 from .utils import dataset_hash, ensure_dir, save_dataframe, save_json, set_seeds
@@ -61,18 +63,14 @@ def _read_csv(path: Path) -> pd.DataFrame:
         raise DataPreparationError(f"Missing synthetic data file: {path}")
     
     df = pd.read_csv(path, comment="#")
-    # Normalize column names (strip whitespace)
+    # Normalize column names
     df.columns = [c.strip() for c in df.columns]
-    
-    # Check for required columns based on file context
-    required_columns = ["gene", "median_TPM"] if "GTEx" in str(path) or "TCGA" in str(path) else ["gene"]
-    missing = [c for c in required_columns if c not in df.columns]
+    missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
     if missing:
-        raise DataPreparationError(
+        raise ValueError(
             f"{path}: missing required columns {missing}; "
             f"got {list(df.columns)}. Ensure comment headers start with '#'."
         )
-    
     return df
 
 
