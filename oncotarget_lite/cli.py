@@ -304,6 +304,49 @@ def generate_data(out_dir: str = typer.Option("data/raw", help="Output directory
     typer.echo(f"Synthetic data written to {out_dir}")
 
 
+@app.command("validate")
+def validate(
+    schema_only: bool = typer.Option(False, help="Only validate schemas, skip housekeeping"),
+) -> None:
+    """Validate schemas and run housekeeping checks."""
+    from .schemas import validate_all_schemas
+    
+    # Schema validation
+    schemas_valid = validate_all_schemas()
+    
+    if schema_only:
+        if schemas_valid:
+            typer.echo("✅ All schemas valid")
+        else:
+            typer.echo("❌ Schema validation failed")
+            raise typer.Exit(1)
+        return
+    
+    # Housekeeping checks
+    try:
+        from scripts.housekeeping import generate_housekeeping_report
+        report = generate_housekeeping_report()
+        
+        status = report["summary"]["status"]
+        if status == "healthy":
+            typer.echo("✅ System healthy")
+        elif status == "optimizable":
+            typer.echo("⚠️ System optimizable")
+            typer.echo("Run 'python scripts/housekeeping.py' for recommendations")
+        else:
+            typer.echo("❌ System needs attention")
+            for issue in report["summary"]["critical_issues"]:
+                typer.echo(f"  - {issue}")
+            raise typer.Exit(1)
+    
+    except Exception as e:
+        typer.echo(f"⚠️ Housekeeping check failed: {e}")
+        # Don't fail hard on housekeeping errors
+    
+    if not schemas_valid:
+        raise typer.Exit(1)
+
+
 @app.command()
 def all(
     seed: int = typer.Option(42, help="Pipeline seed"),

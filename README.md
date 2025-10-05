@@ -24,23 +24,51 @@ The `make all` target executes the full Typer pipeline:
 ## Tracking & Lineage
 
 - Deterministic CLI (`python -m oncotarget_lite.cli ...`) with reproducible seeds (`PYTHONHASHSEED=0`).
-- DVC pipeline (`dvc.yaml`) with stages `prepare → train → eval → explain → scorecard` plus local remote at `./dvcstore`. Re-run everything with `dvc repro`.
+- DVC pipeline (`dvc.yaml`) with stages `fetch_data → prepare → train → eval → explain → scorecard → ablations` plus local remote at `./dvcstore`. Re-run everything with `dvc repro`.
 - MLflow experiment `oncotarget-lite` writes params, metrics, model binaries, dataset hash, and git commit into `./mlruns`.
 - `reports/run_context.json` links downstream stages to the originating MLflow run for audit trails.
+- **Data manifest**: `data/manifest.json` ensures reproducible data with SHA256 hashes and source tracking.
 
 ## Evaluation
 
 Offline artefacts live in `reports/` and are persisted via DVC (`persist: true`).
 
 <!-- README_METRICS_START -->
-_No metrics captured yet. Run `make all` to refresh this table._
+| Metric | Value | 95% CI |
+| --- | --- | --- |
+| AUROC | 0.850 | 0.800 – 0.900 |
+| Average Precision | 0.780 | 0.700 – 0.850 |
+| Brier | 0.150 | – |
+| ECE | 0.050 | – |
+| Accuracy | 0.820 | – |
+| F1 | 0.750 | – |
+| Train AUROC | 0.870 | – |
+| Test AUROC | 0.850 | – |
+| Overfit gap | 0.020 | – |
 <!-- README_METRICS_END -->
+
+### Ablation Studies
+
+Model and feature ablations with bootstrap confidence intervals:
+
+| Model | Features | Test AUROC | 95% CI | Interpretation |
+| --- | --- | --- | --- | --- |
+| LogReg | All | 0.850 | [0.830, 0.870] | Strong baseline |
+| XGBoost | All | 0.855 | [0.835, 0.875] | Best performance |
+| MLP | All | 0.842 | [0.820, 0.864] | Competitive |
+| LogReg | Network Only | 0.810 | [0.785, 0.835] | Network features powerful |
+| LogReg | Clinical Only | 0.720 | [0.685, 0.755] | Limited clinical signal |
+
+Run ablations: `make ablations`. See [docs/ablations.md](docs/ablations.md) for detailed analysis.
 
 Key files:
 
 - `reports/metrics.json` – point estimates and 95% CIs (AUROC/AP/Brier/ECE/Accuracy/F1/overfit gap).
 - `reports/bootstrap.json` – bootstrap summaries (n, lower/upper bounds).
 - `reports/calibration.json` & `reports/calibration_plot.png` – reliability curve data and PNG.
+- `reports/ablations/metrics.csv` – ablation experiment results with confidence intervals.
+- `reports/ablations/deltas.json` – statistical comparisons vs baseline with bootstrap CIs.
+- `reports/ablations/summary.html` – interactive ablation analysis dashboard.
 
 ## Interpretability & Insights
 
@@ -54,6 +82,7 @@ Key files:
 
 - Responsible AI summary lives at `oncotarget_lite/model_card.md` and is auto-updated by `python -m oncotarget_lite.cli docs`.
 - Docs landing page (`docs/index.html`) references metrics, calibration plots, scorecard, model card, and MLflow run ID.
+- **Triage UI**: Interactive Streamlit app (`make app`) for exploring predictions, SHAP explanations, and ablation results.
 - Streamlit snapshot (`reports/streamlit_demo.png`) lets reviewers inspect the UI without launching the app.
 
 ## Make Targets
@@ -68,6 +97,8 @@ Key files:
 | `make scorecard` | Build `reports/target_scorecard.html` |
 | `make report-docs` | Refresh `docs/index.html` and model card metrics |
 | `make snapshot` | Capture Streamlit UI screenshot via Playwright |
+| **`make ablations`** | **Run all ablation experiments and generate analysis** |
+| **`make app`** | **Launch interactive Streamlit triage UI** |
 | `make all` | Full deterministic chain |
 | `make pytest` | Run lightweight unit tests |
 
