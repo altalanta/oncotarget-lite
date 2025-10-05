@@ -1,0 +1,28 @@
+name: "Network Features Only"
+model:
+  type: "logreg"
+  params:
+    C: 1.0
+    max_iter: 500
+    class_weight: "balanced"
+    random_state: 42
+
+features:
+  type: "network_only"
+  includes:
+    - "ppi_degree"
+    - "centrality_*"
+    - "network_*"
+  
+training:
+  seed: 42
+  test_size: 0.3
+
+evaluation:
+  n_bootstrap: 1000
+  ci: 0.95
+  bins: 10
+
+tags:
+  - "feature_ablation"
+  - "network"

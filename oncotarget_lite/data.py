@@ -18,8 +18,8 @@ RAW_DIR = Path("data/raw")
 PROCESSED_DIR = Path("data/processed")
 
 
-class DataPreparationError(RuntimeError):
-    """Raised when cached synthetic data are missing or invalid."""
+class DataPreparationError(Exception):
+    """Recoverable data prep error with actionable message."""
 
 
 @dataclass(slots=True)
@@ -67,7 +67,7 @@ def _read_csv(path: Path) -> pd.DataFrame:
     df.columns = [c.strip() for c in df.columns]
     missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
     if missing:
-        raise ValueError(
+        raise DataPreparationError(
             f"{path}: missing required columns {missing}; "
             f"got {list(df.columns)}. Ensure comment headers start with '#'."
         )

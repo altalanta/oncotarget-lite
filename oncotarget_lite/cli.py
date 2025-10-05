@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 from typing import Optional
 
-import mlflow
 import typer
 
 from . import __version__
@@ -33,7 +32,9 @@ def _load_run_context() -> Optional[dict[str, str]]:
     return None
 
 
-def _start_run(run_name: str | None = None) -> mlflow.ActiveRun:
+def _start_run(run_name: str | None = None):
+    from .utils import _mlflow
+    mlflow = _mlflow()
     tracking_uri = mlflow.get_tracking_uri()
     run = mlflow.start_run(run_name=run_name)
     if run is None:
@@ -73,9 +74,37 @@ def train(
     C: float = typer.Option(1.0, help="Inverse regularisation strength"),
     max_iter: int = typer.Option(500, help="Maximum solver iterations"),
     seed: int = typer.Option(42, help="Random seed"),
+    config: Optional[Path] = typer.Option(None, exists=True, help="Ablation config file"),
+    all_ablations: bool = typer.Option(False, help="Run all ablation experiments"),
 ) -> None:
-    """Train the logistic regression model and log run metadata."""
+    """Train the logistic regression model or run ablation experiments."""
 
+    # Handle ablation experiments
+    if all_ablations or config:
+        from .ablations import discover_ablation_configs, run_ablation_experiment
+        
+        if all_ablations:
+            config_paths = discover_ablation_configs()
+            if not config_paths:
+                typer.echo("No ablation configs found in configs/ablations/")
+                raise typer.Exit(1)
+        else:
+            config_paths = [config]
+        
+        results = []
+        for config_path in config_paths:
+            typer.echo(f"Running ablation: {config_path.stem}")
+            result = run_ablation_experiment(
+                config_path, processed_dir, models_dir, reports_dir
+            )
+            results.append(result)
+        
+        typer.echo(json.dumps({"ablations": len(results), "experiments": [r["experiment"] for r in results]}, indent=2))
+        return
+
+    # Original training logic
+    from .utils import _mlflow
+    mlflow = _mlflow()
     mlflow.set_tracking_uri(str(Path.cwd() / "mlruns"))
     mlflow.set_experiment("oncotarget-lite")
 
@@ -129,6 +158,8 @@ def eval_cmd(
 
     context = _load_run_context()
     if context:
+        from .utils import _mlflow
+        mlflow = _mlflow()
         mlflow.set_tracking_uri(context["tracking_uri"])
         mlflow.set_experiment("oncotarget-lite")
         with mlflow.start_run(run_id=context["run_id"]):
@@ -154,6 +185,26 @@ def eval_cmd(
     typer.echo(json.dumps(result.metrics.__dict__, indent=2))
 
 
+@app.command("ablations")
+def ablations_cmd(
+    reports_dir: Path = typer.Option(Path("reports"), dir_okay=True, help="Reports directory"),
+    n_bootstrap: int = typer.Option(1000, min=100, max=2000, help="Bootstrap samples"),
+    ci: float = typer.Option(0.95, min=0.5, max=0.999, help="Confidence interval"),
+    seed: int = typer.Option(42, help="Random seed"),
+) -> None:
+    """Aggregate ablation results and compute bootstrap CIs."""
+    from .ablations_eval import aggregate_ablation_results
+    
+    result = aggregate_ablation_results(
+        reports_dir=reports_dir,
+        n_bootstrap=n_bootstrap,
+        ci=ci,
+        seed=seed,
+    )
+    
+    typer.echo(json.dumps({"summary": str(result)}, indent=2))
+
+
 @app.command()
 def explain(
     processed_dir: Path = typer.Option(PROCESSED_DIR, dir_okay=True),
@@ -174,6 +225,8 @@ def explain(
 
     context = _load_run_context()
     if context:
+        from .utils import _mlflow
+        mlflow = _mlflow()
         mlflow.set_tracking_uri(context["tracking_uri"])
         mlflow.set_experiment("oncotarget-lite")
         with mlflow.start_run(run_id=context["run_id"]):
@@ -194,6 +247,8 @@ def scorecard(
 
     context = _load_run_context()
     if context and output_path.exists():
+        from .utils import _mlflow
+        mlflow = _mlflow()
         mlflow.set_tracking_uri(context["tracking_uri"])
         mlflow.set_experiment("oncotarget-lite")
         with mlflow.start_run(run_id=context["run_id"]):
@@ -215,6 +270,8 @@ def snapshot(
 
     context = _load_run_context()
     if context and image_path.exists():
+        from .utils import _mlflow
+        mlflow = _mlflow()
         mlflow.set_tracking_uri(context["tracking_uri"])
         mlflow.set_experiment("oncotarget-lite")
         with mlflow.start_run(run_id=context["run_id"]):
@@ -235,23 +292,16 @@ def docs(
     typer.echo(json.dumps({"docs_index": str(output)}, indent=2))
 
 
-@app.command()
-def generate_data(
-    output_dir: Path = typer.Option(Path("data/raw"), dir_okay=True, help="Output directory for synthetic data"),
-) -> None:
-    """Generate synthetic development data for testing and development."""
-    import subprocess
-    import sys
-    
-    result = subprocess.run([
-        sys.executable, "scripts/generate_synthetic_data.py"
-    ], cwd=Path.cwd())
-    
-    if result.returncode == 0:
-        typer.echo(json.dumps({"status": "success", "output_dir": str(output_dir)}, indent=2))
-    else:
-        typer.echo(json.dumps({"status": "failed", "returncode": result.returncode}, indent=2))
-        raise typer.Exit(result.returncode)
+@app.command("generate-data")
+def generate_data(out_dir: str = typer.Option("data/raw", help="Output directory for synthetic data")):
+    """
+    Generate synthetic development data (CSV files) with comment headers.
+    """
+    from pathlib import Path
+    from scripts.generate_synthetic_data import main as gen
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    gen(out_dir)
+    typer.echo(f"Synthetic data written to {out_dir}")
 
 
 @app.command()
