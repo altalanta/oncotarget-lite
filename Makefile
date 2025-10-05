@@ -41,6 +41,13 @@ snapshot: report-docs
 report-docs: scorecard
 	$(PY) -m oncotarget_lite.cli docs
 
+ablations: prepare
+	$(PY) -m oncotarget_lite.cli train --all-ablations
+	$(PY) -m oncotarget_lite.cli ablations
+
+app: setup
+	$(PY) -m streamlit run oncotarget_lite/app.py
+
 all: setup devdata prepare train evaluate explain scorecard report-docs snapshot
 
 clean:
@@ -69,7 +76,7 @@ ci:
 	make all
 	make pytest
 
-.PHONY: setup devdata prepare train evaluate explain scorecard snapshot report-docs all clean pytest lint format mypy ci bench docs-metrics
+.PHONY: setup devdata prepare train evaluate explain scorecard snapshot report-docs ablations app all clean pytest lint format mypy ci bench docs-metrics
 
 dvc.repro:
 	dvc repro
