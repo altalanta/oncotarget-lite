@@ -16,6 +16,18 @@ import numpy as np
 import pandas as pd
 
 
+def _mlflow():
+    """
+    Lazy importer to avoid import-time failures in lightweight contexts (e.g., CLI --help, unit tests).
+    Raise a clear message only when MLflow is actually needed.
+    """
+    try:
+        import mlflow  # type: ignore
+    except Exception as e:
+        raise RuntimeError("MLflow is required for this operation but is not installed.") from e
+    return mlflow
+
+
 def git_commit() -> str:
     """Return the current git commit SHA (short), fallback to "unknown"."""
 

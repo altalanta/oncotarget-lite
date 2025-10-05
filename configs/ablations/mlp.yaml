@@ -1,0 +1,26 @@
+name: "Multi-Layer Perceptron"
+model:
+  type: "mlp"
+  params:
+    hidden_layer_sizes: [64, 32]
+    activation: "relu"
+    solver: "adam"
+    alpha: 0.001
+    max_iter: 200
+    random_state: 42
+
+features:
+  type: "all_features"
+  
+training:
+  seed: 42
+  test_size: 0.3
+
+evaluation:
+  n_bootstrap: 1000
+  ci: 0.95
+  bins: 10
+
+tags:
+  - "neural_network"
+  - "non_linear"
