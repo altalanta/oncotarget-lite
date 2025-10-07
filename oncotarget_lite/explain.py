@@ -83,8 +83,15 @@ def generate_shap(
     shap_dir: Path = SHAP_DIR,
     seed: int = 42,
     background_size: int = 100,
+    distributed: bool = True,
+    max_evals: Optional[int] = None,
 ) -> ShapArtifacts:
     """Compute SHAP values for the trained model and persist plots."""
+
+    # Configure distributed computing if enabled
+    if distributed:
+        from .distributed import configure_distributed
+        configure_distributed(backend='joblib', n_jobs=-1, verbose=0)
 
     set_seeds(seed)
     features, splits, pipeline = _load_training_state(processed_dir, models_dir)

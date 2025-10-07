@@ -92,6 +92,21 @@ def _bootstrap_ci(
     ci: float,
     seed: int,
 ) -> BootstrapCI:
+    """Compute bootstrap confidence intervals with optional parallelization."""
+    from .distributed import bootstrap_parallel, is_distributed_enabled
+
+    if is_distributed_enabled() and n_bootstrap >= 100:  # Only use parallel for large bootstrap
+        ci_result = bootstrap_parallel(
+            y_true=y_true,
+            y_prob=y_prob,
+            metric_fn=metric_fn,
+            n_bootstrap=n_bootstrap,
+            ci=ci,
+            seed=seed,
+        )
+        return BootstrapCI(mean=ci_result["mean"], lower=ci_result["lower"], upper=ci_result["upper"])
+
+    # Fallback to original sequential implementation
     set_seeds(seed)
     rng = np.random.default_rng(seed)
     scores = []
@@ -123,8 +138,14 @@ def evaluate_predictions(
     ci: float = 0.95,
     bins: int = 10,
     seed: int = 42,
+    distributed: bool = True,
 ) -> EvaluationArtifacts:
     """Compute calibration-aware metrics for saved predictions."""
+
+    # Configure distributed computing if enabled
+    if distributed:
+        from .distributed import configure_distributed
+        configure_distributed(backend='joblib', n_jobs=-1, verbose=0)
 
     predictions_path = reports_dir / "predictions.parquet"
     if not predictions_path.exists():
@@ -196,6 +217,33 @@ def evaluate_predictions(
             "overfit_gap": metrics.overfit_gap,
         },
     )
+
+    # Capture performance snapshot for monitoring if enabled
+    if distributed and reports_dir / "predictions.parquet":
+        try:
+            from .monitoring import ModelMonitor
+
+            monitor = ModelMonitor()
+
+            # Get run context from CLI module
+            try:
+                from .cli import _load_run_context
+                context = _load_run_context()
+                run_id = context["run_id"] if context else "unknown"
+            except ImportError:
+                run_id = "unknown"
+
+            snapshot = monitor.capture_performance_snapshot(
+                predictions_path=reports_dir / "predictions.parquet",
+                model_version=run_id,
+                dataset_hash="unknown",  # Would need to extract from training data
+            )
+
+            print(f"📊 Performance snapshot captured (AUROC: {snapshot.auroc:.3f}, AP: {snapshot.ap:.3f})")
+
+        except Exception as e:
+            print(f"⚠️ Failed to capture performance snapshot: {e}")
+            # Don't fail the evaluation for monitoring issues
     save_json(
         reports_dir / "bootstrap.json",
         {

@@ -57,6 +57,10 @@ clean:
 pytest:
 	$(PY) -m pytest -q
 
+security:
+	$(PIP) install pip-audit>=2.7.0 safety>=2.3.5
+	$(PY) scripts/security_scan.py
+
 lint:
 	$(PY) -m ruff check .
 
@@ -72,11 +76,22 @@ bench:
 docs-metrics:
 	$(PY) -m scripts.render_docs_metrics
 
+distributed:
+	$(PY) -m oncotarget_lite.cli distributed --n-jobs -1
+
+monitor:
+	$(PY) -m oncotarget_lite.cli monitor status
+
+validate-interpretability:
+	$(PY) -m oncotarget_lite.cli validate-interpretability --summary-only
+
 ci:
 	make all
 	make pytest
+	make security
+	make monitor
 
-.PHONY: setup devdata prepare train evaluate explain scorecard snapshot report-docs ablations app all clean pytest lint format mypy ci bench docs-metrics
+.PHONY: setup devdata prepare train evaluate explain scorecard snapshot report-docs ablations app all clean pytest security distributed monitor validate-interpretability lint format mypy ci bench docs-metrics
 
 dvc.repro:
 	dvc repro

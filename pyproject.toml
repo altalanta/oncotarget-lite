@@ -49,6 +49,14 @@ dev = [
   "ruff==0.6.8",
   "mypy==1.11.2",
 ]
+security = [
+  "pip-audit>=2.7.0",
+  "safety>=2.3.5",
+]
+distributed = [
+  "dask[distributed]>=2024.1.0",
+  "ray[default]>=2.9.0",
+]
 
 [project.scripts]
 oncotarget-lite = "oncotarget_lite.cli:app"
