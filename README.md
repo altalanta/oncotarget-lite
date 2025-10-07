@@ -29,6 +29,118 @@ The `make all` target executes the full Typer pipeline:
 - `reports/run_context.json` links downstream stages to the originating MLflow run for audit trails.
 - **Data manifest**: `data/manifest.json` ensures reproducible data with SHA256 hashes and source tracking.
 
+## Distributed Computing
+
+The pipeline supports distributed computing for computationally intensive tasks:
+
+- **Bootstrap confidence intervals** computed in parallel for faster evaluation
+- **SHAP explanations** generated with parallel processing for multiple samples
+- **Ablation studies** run concurrently across different model configurations
+- **Multiple backends supported**: Joblib (default), Dask, and Ray
+
+Configure distributed computing:
+
+```bash
+# Use all available cores
+python -m oncotarget_lite.cli distributed --n-jobs -1
+
+# Use specific number of cores
+python -m oncotarget_lite.cli distributed --n-jobs 8
+
+# Use Dask for large-scale distributed computing
+python -m oncotarget_lite.cli distributed --backend dask --n-jobs 16
+```
+
+The `make all` command automatically enables distributed computing with all cores.
+
+## Model Performance Monitoring
+
+The system includes comprehensive model monitoring and drift detection:
+
+- **Performance Tracking**: Automatic capture of model metrics after each evaluation
+- **Drift Detection**: Statistical tests for detecting changes in prediction distributions
+- **Feature Importance Monitoring**: Tracking changes in feature importance over time
+- **Automated Alerts**: Configurable notifications for performance regressions
+- **Trend Analysis**: Historical performance trends and forecasting
+
+### Monitoring Commands
+
+```bash
+# View monitoring status
+python -m oncotarget_lite.cli monitor status
+
+# Capture current performance snapshot
+python -m oncotarget_lite.cli monitor capture
+
+# Generate detailed monitoring report
+python -m oncotarget_lite.cli monitor report --days 30
+
+# Check for drift and send alerts
+python -m oncotarget_lite.cli monitor alerts --slack-webhook $WEBHOOK_URL
+
+# Configure monitoring with custom thresholds
+python -m oncotarget_lite.cli monitor status --model-version latest --days 7
+```
+
+### Alert Configuration
+
+Configure alerts via environment variables or CLI options:
+
+```bash
+# Slack notifications
+export SLACK_WEBHOOK_URL="https://hooks.slack.com/services/..."
+
+# Email notifications
+export EMAIL_TO="alerts@company.com"
+export SMTP_SERVER="smtp.company.com"
+```
+
+The monitoring system automatically detects:
+- **Performance Regressions**: Significant drops in AUROC, AP, or other metrics
+- **Prediction Drift**: Changes in prediction distribution characteristics
+- **Feature Drift**: Changes in feature importance rankings
+- **Data Quality Issues**: Anomalies in class balance or sample characteristics
+
+## Interpretability Validation
+
+The system includes comprehensive validation for SHAP explanations and model interpretability:
+
+- **Background Consistency Testing**: Validates explanation stability across different background dataset sizes
+- **Explanation Stability Analysis**: Bootstrap-based stability testing of SHAP values
+- **Feature Importance Validation**: Statistical confidence intervals for feature importance rankings
+- **Perturbation Robustness Testing**: Tests explanation sensitivity to small input changes
+- **Cross-Validation Consistency**: Validates explanations across different data folds
+- **Counterfactual Explanation Generation**: Creates examples showing how to change predictions
+
+### Interpretability Validation Commands
+
+```bash
+# Run comprehensive interpretability validation
+python -m oncotarget_lite.cli validate-interpretability
+
+# Quick validation summary
+python -m oncotarget_lite.cli validate-interpretability --summary-only
+
+# Custom validation parameters
+python -m oncotarget_lite.cli validate-interpretability \
+  --background-sizes "50,100,200" \
+  --n-bootstrap 200 \
+  --perturbation-magnitude 0.05
+
+# Use Makefile target
+make validate-interpretability
+```
+
+### Validation Metrics
+
+The system computes and reports:
+- **Overall Quality Score**: Composite metric combining all validation aspects
+- **Background Consistency**: Correlation of explanations across background sizes
+- **Stability Score**: Consistency of explanations across bootstrap samples
+- **Feature Importance Rank Stability**: Kendall tau correlation of importance rankings
+- **Perturbation Robustness**: Sensitivity to input perturbations
+- **Cross-Validation Consistency**: Agreement across CV folds
+
 ## Evaluation
 
 Offline artefacts live in `reports/` and are persisted via DVC (`persist: true`).
@@ -99,6 +211,10 @@ Key files:
 | `make snapshot` | Capture Streamlit UI screenshot via Playwright |
 | **`make ablations`** | **Run all ablation experiments and generate analysis** |
 | **`make app`** | **Launch interactive Streamlit triage UI** |
+| **`make distributed`** | **Configure distributed computing settings** |
+| **`make security`** | **Run security audit on dependencies** |
+| **`make monitor`** | **Check model performance and drift status** |
+| **`make validate-interpretability`** | **Run interpretability validation on SHAP explanations** |
 | `make all` | Full deterministic chain |
 | `make pytest` | Run lightweight unit tests |
 

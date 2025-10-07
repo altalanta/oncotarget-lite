@@ -53,6 +53,7 @@ def run_ablation_experiment(
     processed_dir: Path,
     models_dir: Path,
     reports_dir: Path,
+    distributed: bool = True,
 ) -> Dict[str, Any]:
     """Run a single ablation experiment."""
     config = load_ablation_config(config_path)
@@ -94,3 +95,51 @@ def run_ablation_experiment(
         json.dump(result_data, f, indent=2)
     
     return result_data
+
+
+def run_all_ablation_experiments(
+    processed_dir: Path,
+    models_dir: Path,
+    reports_dir: Path,
+    distributed: bool = True,
+    n_jobs: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Run all ablation experiments in parallel.
+
+    Args:
+        processed_dir: Processed data directory
+        models_dir: Models output directory
+        reports_dir: Reports output directory
+        distributed: Whether to use distributed computing
+        n_jobs: Number of parallel jobs (uses all cores if None)
+
+    Returns:
+        List of experiment results
+    """
+    from .distributed import ablation_parallel, configure_distributed
+
+    # Configure distributed computing if enabled
+    if distributed:
+        configure_distributed(backend='joblib', n_jobs=n_jobs or -1, verbose=1)
+
+    # Discover all ablation configs
+    config_paths = discover_ablation_configs()
+
+    if not config_paths:
+        print("No ablation configs found in configs/ablations/")
+        return []
+
+    print(f"Running {len(config_paths)} ablation experiments in parallel...")
+
+    # Run experiments in parallel
+    results = ablation_parallel(
+        ablation_configs=config_paths,
+        run_experiment_fn=run_ablation_experiment,
+        processed_dir=processed_dir,
+        models_dir=models_dir,
+        reports_dir=reports_dir,
+        n_jobs=n_jobs,
+    )
+
+    return results
