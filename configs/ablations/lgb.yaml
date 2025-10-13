@@ -1,0 +1,27 @@
+name: "LightGBM"
+model:
+  type: "lgb"
+  params:
+    n_estimators: 100
+    max_depth: 6
+    learning_rate: 0.1
+    subsample: 0.8
+    colsample_bytree: 0.8
+    random_state: 42
+
+features:
+  type: "all_features"
+
+training:
+  seed: 42
+  test_size: 0.3
+
+evaluation:
+  n_bootstrap: 1000
+  ci: 0.95
+  bins: 10
+
+tags:
+  - "tree_based"
+  - "ensemble"
+  - "gradient_boosting"
