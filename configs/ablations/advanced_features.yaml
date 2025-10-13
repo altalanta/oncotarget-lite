@@ -1,0 +1,29 @@
+name: "Advanced Features"
+model:
+  type: "logreg"
+  params:
+    C: 1.0
+    max_iter: 500
+    class_weight: "balanced"
+    random_state: 42
+
+features:
+  type: "advanced_features"
+  use_advanced_features: true
+
+training:
+  seed: 42
+  test_size: 0.3
+
+evaluation:
+  n_bootstrap: 1000
+  ci: 0.95
+  bins: 10
+
+tags:
+  - "advanced_biological_features"
+  - "ppi_network"
+  - "pathway_analysis"
+  - "domain_architecture"
+  - "conservation_analysis"
+  - "structural_features"

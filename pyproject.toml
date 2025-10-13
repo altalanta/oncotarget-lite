@@ -57,6 +57,14 @@ distributed = [
   "dask[distributed]>=2024.1.0",
   "ray[default]>=2.9.0",
 ]
+modern_models = [
+  "xgboost>=2.0.0",
+  "lightgbm>=4.0.0",
+]
+advanced_features = [
+  "networkx>=3.0.0",
+  "requests>=2.28.0",
+]
 
 [project.scripts]
 oncotarget-lite = "oncotarget_lite.cli:app"
