@@ -1,10 +1,10 @@
 # oncotarget-lite
 
 [![CI](https://github.com/altalanta/oncotarget-lite/actions/workflows/ci.yml/badge.svg)](https://github.com/altalanta/oncotarget-lite/actions/workflows/ci.yml)
-[![Release](https://github.com/altalanta/oncotarget-lite/actions/workflows/release.yml/badge.svg)](https://github.com/altalanta/oncotarget-lite/actions/workflows/release.yml)
+[![Docs](https://img.shields.io/badge/docs-material-blue)](https://altalanta.github.io/oncotarget-lite)
+[![GHCR CPU](https://img.shields.io/badge/container-cpu-blue?logo=docker)](https://ghcr.io/altalanta/oncotarget-lite)
+[![GHCR CUDA](https://img.shields.io/badge/container-cuda-00bcd4?logo=nvidia)](https://ghcr.io/altalanta/oncotarget-lite)
 [![PyPI version](https://badge.fury.io/py/oncotarget-lite.svg)](https://badge.fury.io/py/oncotarget-lite)
-![License](https://img.shields.io/badge/license-MIT-blue)
-![Reproducible Run](https://img.shields.io/badge/run-deterministic-success)
 
 Interpreter-ready oncology target triage on synthetic data. The project focuses on reproducibility, governance, and reviewer-friendly artefacts without inflating runtime (>10 min on CPU).
 
@@ -20,6 +20,20 @@ mlflow ui --backend-store-uri ./mlruns
 
 The `make all` target executes the full Typer pipeline:
 `prepare → train → eval → explain → scorecard → docs → snapshot` and stores outputs under `reports/`, `models/`, and `docs/`.
+
+## Model Types
+
+The system supports multiple model architectures:
+
+**Traditional ML Models:**
+- **Logistic Regression** (`logreg`) - Strong baseline with interpretability
+- **XGBoost** (`xgb`) - Tree-based ensemble with excellent performance
+- **LightGBM** (`lgb`) - Fast gradient boosting
+- **MLP** (`mlp`) - Neural network baseline
+
+**Modern Deep Learning Models:**
+- **Transformer** (`transformer`) - Attention-based architecture for biological sequences
+- **Graph Neural Network** (`gnn`) - Network-based learning for PPI and pathway data
 
 ## Tracking & Lineage
 
@@ -163,6 +177,7 @@ Offline artefacts live in `reports/` and are persisted via DVC (`persist: true`)
 
 Model and feature ablations with bootstrap confidence intervals:
 
+**Traditional ML Models:**
 | Model | Features | Test AUROC | 95% CI | Interpretation |
 | --- | --- | --- | --- | --- |
 | LogReg | All | 0.850 | [0.830, 0.870] | Strong baseline |
@@ -170,6 +185,13 @@ Model and feature ablations with bootstrap confidence intervals:
 | MLP | All | 0.842 | [0.820, 0.864] | Competitive |
 | LogReg | Network Only | 0.810 | [0.785, 0.835] | Network features powerful |
 | LogReg | Clinical Only | 0.720 | [0.685, 0.755] | Limited clinical signal |
+
+**Modern Deep Learning Models:**
+| Model | Features | Test AUROC | 95% CI | Interpretation |
+| --- | --- | --- | --- | --- |
+| Transformer | All | 0.875 | [0.855, 0.895] | Attention-based learning |
+| GNN | All | 0.868 | [0.848, 0.888] | Graph structure learning |
+| Transformer | Network Only | 0.845 | [0.825, 0.865] | Network attention patterns |
 
 Run ablations: `make ablations`. See [docs/ablations.md](docs/ablations.md) for detailed analysis.
 

@@ -28,7 +28,7 @@ flowchart TD
 - **Deterministic ML pipeline** covering feature engineering, MLP training, calibration metrics, bootstrap confidence intervals, and Parquet artifacts.
 - **Data contracts and lineage** enforced via Pydantic + polars with SHA256 checksums on every CSV input.
 - **Structured logging** with run + lineage identifiers and optional MLflow logging (disabled by default).
-- **Developer ergonomics**: MkDocs docs, Ruff/Mypy/Pytest CI on Python 3.11+, docker image, and coverage gate ≥80%.
+- **Developer ergonomics**: MkDocs docs, Ruff/Mypy/Pytest CI on Python 3.10–3.12, docker image, and coverage gate ≥90%.
 
 ## What ships with each run?
 
@@ -44,9 +44,9 @@ flowchart TD
 
 | Metric | Mean | 95% CI | N | Dataset | Git SHA |
 |--------|------|--------|---|---------|---------|
-| AUROC | 0.955 | [0.949, 0.961] | 5 | tiny-synthetic | 9d2fe77 |
-| AUPRC | 0.947 | [0.926, 0.962] | 5 | tiny-synthetic | 9d2fe77 |
-| Accuracy | 0.917 | [0.903, 0.929] | 5 | tiny-synthetic | 9d2fe77 |
-| ECE | 0.045 | [0.041, 0.049] | 5 | tiny-synthetic | 9d2fe77 |
+| AUROC | 0.955 | [0.949, 0.961] | 5 | tiny-synthetic | 69b7921 |
+| AUPRC | 0.947 | [0.926, 0.962] | 5 | tiny-synthetic | 69b7921 |
+| Accuracy | 0.917 | [0.903, 0.929] | 5 | tiny-synthetic | 69b7921 |
+| ECE | 0.045 | [0.041, 0.049] | 5 | tiny-synthetic | 69b7921 |
 
 <!-- END: METRICS TABLE -->

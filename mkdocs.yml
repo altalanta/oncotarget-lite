@@ -1,0 +1,35 @@
+site_name: Oncotarget Lite
+site_url: https://altalanta.github.io/oncotarget-lite
+repo_url: https://github.com/altalanta/oncotarget-lite
+repo_name: altalanta/oncotarget-lite
+site_description: "Lean, laptop-first oncology target triage pipeline"
+nav:
+  - Quickstart: quickstart.md
+  - Pipeline: pipeline.md
+  - Reproducibility: reproducibility.md
+  - Monitoring: monitoring.md
+  - Interpretability Validation: interpretability.md
+  - Model Card: model_card.md
+  - Changelog: changelog.md
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - navigation.sections
+    - content.code.copy
+    - toc.integrate
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.superfences
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.tasklist
+  - pymdownx.emoji
+plugins:
+  - search
+  - section-index

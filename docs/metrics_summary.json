@@ -1,7 +1,7 @@
 {
   "dataset": "tiny-synthetic",
   "n": 5,
-  "git_sha": "9d2fe77",
+  "git_sha": "69b7921",
   "metrics": {
     "auroc": {
       "mean": 0.9547983157769975,

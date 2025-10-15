@@ -1,0 +1,28 @@
+prepare:
+  seed: 7
+  test_size: 0.2
+train:
+  seed: 7
+  C: 0.5
+  max_iter: 100
+  model_type: logreg
+eval:
+  seed: 7
+  n_bootstrap: 32
+  ci: 0.8
+  bins: 6
+  distributed: false
+explain:
+  seed: 7
+  background_size: 16
+  distributed: false
+  max_evals: 200
+ablations:
+  seed: 7
+  n_bootstrap: 16
+  ci: 0.8
+  distributed: false
+  parallel_jobs: 1
+all:
+  seed: 7
+  distributed: false
