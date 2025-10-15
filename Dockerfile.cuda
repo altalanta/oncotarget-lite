@@ -1,25 +1,45 @@
-# syntax=docker/dockerfile:1
+ARG PYTHON_VERSION=3.11
+ARG UV_VERSION=0.4.23
+ARG CUDA_VERSION=12.1.0
 
-FROM pytorch/pytorch:2.1.0-cuda11.8-cudnn8-runtime AS builder
+FROM python:${PYTHON_VERSION}-slim AS builder
+ARG UV_VERSION
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 WORKDIR /app
-COPY pyproject.toml README.md LICENSE bandit-baseline.json /app/
-COPY src /app/src
-COPY configs /app/configs
-COPY docs /app/docs
-RUN pip install --upgrade pip build && \
-    python -m build --wheel
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir uv==${UV_VERSION} build
+COPY pyproject.toml uv.lock README.md requirements.txt ./
+COPY oncotarget_lite ./oncotarget_lite
+COPY scripts ./scripts
+RUN uv pip sync uv.lock && python -m build --wheel --no-isolation
 
-FROM pytorch/pytorch:2.1.0-cuda11.8-cudnn8-runtime AS runtime
-ENV PYTHONUNBUFFERED=1
-WORKDIR /workspace
-COPY --from=builder /app/dist/*.whl /tmp/histo-omics-lite.whl
-RUN useradd --create-home --shell /bin/bash appuser && \
-    pip install --upgrade pip && \
-    pip install /tmp/histo-omics-lite.whl[cuda,viz] && \
-    rm -f /tmp/histo-omics-lite.whl
-ENV NVIDIA_VISIBLE_DEVICES=all
-ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
-USER appuser
-ENTRYPOINT ["histo-omics-lite"]
+FROM nvidia/cuda:${CUDA_VERSION}-runtime-ubuntu22.04 AS runtime
+ARG PYTHON_VERSION
+ARG UV_VERSION
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends software-properties-common curl ca-certificates && \
+    add-apt-repository ppa:deadsnakes/ppa && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends python${PYTHON_VERSION} python${PYTHON_VERSION}-venv python${PYTHON_VERSION}-distutils python3-pip && \
+    ln -s /usr/bin/python${PYTHON_VERSION} /usr/local/bin/python && \
+    rm -rf /var/lib/apt/lists/*
+RUN python -m ensurepip --upgrade
+RUN pip install --no-cache-dir uv==${UV_VERSION}
+COPY uv.lock pyproject.toml ./
+RUN uv pip sync uv.lock
+COPY --from=builder /app/dist/oncotarget_lite-*.whl /tmp/oncotarget_lite.whl
+RUN pip install --no-cache-dir '/tmp/oncotarget_lite.whl[cuda]' && rm /tmp/oncotarget_lite.whl
+COPY configs ./configs
+COPY params.yaml ./params.yaml
+COPY params.ci.yaml ./params.ci.yaml
+COPY config.example.yaml ./config.example.yaml
+COPY scripts/download_data.py ./scripts/download_data.py
+RUN groupadd --system onco && useradd --system --create-home --gid onco --shell /bin/bash onco && mkdir -p data reports models docs
+USER onco
+HEALTHCHECK --interval=1m --timeout=10s CMD oncotarget-lite --help >/dev/null 2>&1 || exit 1
+ENTRYPOINT ["oncotarget-lite"]
 CMD ["--help"]
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD histo-omics-lite --help > /dev/null || exit 1

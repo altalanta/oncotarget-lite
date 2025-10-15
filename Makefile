@@ -1,97 +1,225 @@
+SHELL := /bin/bash
+
 PYTHON ?= python3
-VENV ?= .venv
-PIP ?= $(VENV)/bin/pip
-PY ?= $(VENV)/bin/python
+UV ?= uv
+FAST ?= 0
+PROFILE ?=
+
+FAST_BOOL := $(if $(filter 1 true yes,$(FAST)),1,0)
+FAST_FLAG := $(if $(filter 1 true yes,$(FAST)),--fast,)
+PROFILE_ARGS :=
+ifeq ($(FAST_BOOL),1)
+PROFILE_ARGS += --ci
+endif
+ifneq ($(PROFILE),)
+PROFILE_ARGS += --profile $(PROFILE)
+endif
+
+HAS_UV := $(shell command -v $(UV) >/dev/null 2>&1 && echo 1 || echo 0)
+PYTHON_RUN := $(PYTHON)
+RUN_CMD :=
+ifeq ($(HAS_UV),1)
+PYTHON_RUN := $(UV) run python
+RUN_CMD := $(UV) run
+endif
+
+LOCKFILE := uv.lock
+ENV_EXPORT := ONCOTARGET_LITE_FAST=$(FAST_BOOL)
+CLI := $(ENV_EXPORT) $(PYTHON_RUN) -m oncotarget_lite.cli $(PROFILE_ARGS)
 
 .DEFAULT_GOAL := all
 
-$(VENV)/bin/activate: requirements.txt
-	$(PYTHON) -m venv $(VENV)
-	$(PIP) install --upgrade pip
-	$(PIP) install -r requirements.txt
-	$(PIP) install -e .
+.PHONY: setup sync download-data prepare train evaluate explain scorecard snapshot docs docs-targets \ 
+    monitor-report interpretability-validate model-card docs-monitoring docs-interpretability mkdocs-build \ 
+    all clean pytest lint format mypy bandit pre-commit security ablations distributed monitor \ 
+    validate-interpretability export-requirements docker.build.cpu docker.build.cuda docker.push.cpu docker.push.cuda
 
-setup: $(VENV)/bin/activate
-	@echo "Virtual environment ready: $(VENV)"
+setup:
+ifeq ($(HAS_UV),1)
+	@if [ -f $(LOCKFILE) ]; then \
+		$(UV) sync --frozen; \
+	else \
+		$(UV) sync; \
+	fi
+else
+	$(PYTHON) -m pip install --upgrade pip
+	$(PYTHON) -m pip install -r requirements.txt
+	$(PYTHON) -m pip install -e .
+endif
+	$(ENV_EXPORT) $(PYTHON_RUN) scripts/download_data.py $(FAST_FLAG)
 
-.PHONY: devdata
-devdata:
-	python scripts/generate_synthetic_data.py
+sync: setup
 
-prepare: devdata
-	python -m oncotarget_lite.cli prepare
+download-data:
+	$(ENV_EXPORT) $(PYTHON_RUN) scripts/download_data.py $(FAST_FLAG)
 
-train: prepare
-	$(PY) -m oncotarget_lite.cli train
+prepare:
+	$(CLI) prepare
 
-.PHONY: evaluate
-# "eval" is a reserved keyword in some shells; expose as "evaluate"
-evaluate: train
-	$(PY) -m oncotarget_lite.cli eval
+train:
+	$(CLI) train
 
-explain: evaluate
-	$(PY) -m oncotarget_lite.cli explain
+evaluate:
+	$(CLI) eval
 
-scorecard: explain
-	$(PY) -m oncotarget_lite.cli scorecard
+explain:
+	$(CLI) explain
 
-snapshot: report-docs
-	$(PY) -m oncotarget_lite.cli snapshot
+scorecard:
+	$(CLI) scorecard
 
-report-docs: scorecard
-	$(PY) -m oncotarget_lite.cli docs
-
-ablations: prepare
-	$(PY) -m oncotarget_lite.cli train --all-ablations
-	$(PY) -m oncotarget_lite.cli ablations
-
-app: setup
-	$(PY) -m streamlit run oncotarget_lite/app.py
-
-all: setup devdata prepare train evaluate explain scorecard report-docs snapshot
-
-clean:
-	rm -rf $(VENV) mlruns models reports dvcstore docs/index.html
-	rm -f reports/run_context.json
-
-pytest:
-	$(PY) -m pytest -q
-
-security:
-	$(PIP) install pip-audit>=2.7.0 safety>=2.3.5
-	$(PY) scripts/security_scan.py
-
-lint:
-	$(PY) -m ruff check .
-
-format:
-	$(PY) -m ruff format .
-
-mypy:
-	$(PY) -m mypy oncotarget_lite
-
-bench:
-	$(PY) -m scripts.eval_small_benchmark
-
-docs-metrics:
-	$(PY) -m scripts.render_docs_metrics
-
-distributed:
-	$(PY) -m oncotarget_lite.cli distributed --n-jobs -1
+snapshot:
+	$(CLI) snapshot
 
 monitor:
-	$(PY) -m oncotarget_lite.cli monitor status
+	$(CLI) monitor status
+
+monitor-report:
+	$(CLI) monitor report || true
+
+interpretability-validate:
+	$(CLI) validate-interpretability --summary-only || true
+
+model-card:
+	$(ENV_EXPORT) $(PYTHON_RUN) scripts/generate_model_card.py
+
+docs-monitoring: monitor-report
+	$(ENV_EXPORT) $(PYTHON_RUN) - <<'PY'
+from pathlib import Path
+import json
+
+output = Path("docs/monitoring.md")
+output.parent.mkdir(parents=True, exist_ok=True)
+report_path = Path("reports/monitoring_report.json")
+
+lines = ["# Monitoring", ""]
+if report_path.exists():
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    snapshots = report.get("snapshots_count", 0)
+    alerts = report.get("alerts_count", 0)
+	lines.append(f"Snapshots analysed: {snapshots}")
+	lines.append(f"Active alerts: {alerts}")
+	latest = report.get("latest_performance") or {}
+	if latest:
+		lines.append("")
+		lines.append("## Latest Performance")
+		for key in ("auroc", "ap", "accuracy", "f1"):
+			if key in latest:
+				value = latest[key]
+				if isinstance(value, (int, float)):
+					lines.append(f"- {key.upper()}: {value:.3f}")
+				else:
+					lines.append(f"- {key.upper()}: {value}")
+else:
+    lines.append("Monitoring report not generated. Run `make monitor-report` after a pipeline run.")
+
+output.write_text("\n".join(lines) + "\n", encoding="utf-8")
+PY
+
+docs-interpretability: interpretability-validate
+	$(ENV_EXPORT) $(PYTHON_RUN) - <<'PY'
+from pathlib import Path
+import json
+
+output = Path("docs/interpretability.md")
+output.parent.mkdir(parents=True, exist_ok=True)
+report_path = Path("reports/interpretability_validation/validation_report.json")
+
+lines = ["# Interpretability Validation", ""]
+if report_path.exists():
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    quality = report.get("explanation_quality", {})
+	if quality:
+		lines.append("## Quality Metrics")
+		for key, value in quality.items():
+			label = key.replace('_', ' ').title()
+			if isinstance(value, (int, float)):
+				lines.append(f"- {label}: {value:.3f}")
+			else:
+				lines.append(f"- {label}: {value}")
+    scores = report.get("background_consistency_scores", {})
+	if scores:
+		lines.append("")
+		lines.append("## Background Consistency")
+		for bg, score in scores.items():
+			if isinstance(score, (int, float)):
+				lines.append(f"- Background {bg}: {score:.3f}")
+			else:
+				lines.append(f"- Background {bg}: {score}")
+else:
+    lines.append("Interpretability validation report not generated. Run `make interpretability-validate`.")
+
+output.write_text("\n".join(lines) + "\n", encoding="utf-8")
+PY
+
+docs-targets: model-card docs-monitoring docs-interpretability
+	$(ENV_EXPORT) $(PYTHON_RUN) scripts/render_docs_metrics.py || true
+
+mkdocs-build:
+ifeq ($(HAS_UV),1)
+	$(RUN_CMD) mkdocs build --strict
+else
+	mkdocs build --strict
+endif
+
+docs: docs-targets mkdocs-build
+
+ablations:
+	$(CLI) train --all-ablations
+	$(CLI) ablations
+
+distributed:
+	$(CLI) distributed
 
 validate-interpretability:
-	$(PY) -m oncotarget_lite.cli validate-interpretability --summary-only
+	$(CLI) validate-interpretability
 
-ci:
-	make all
-	make pytest
-	make security
-	make monitor
+all: setup prepare train evaluate explain scorecard docs snapshot
 
-.PHONY: setup devdata prepare train evaluate explain scorecard snapshot report-docs ablations app all clean pytest security distributed monitor validate-interpretability lint format mypy ci bench docs-metrics
+pytest:
+	$(ENV_EXPORT) $(PYTHON_RUN) -m pytest -q
 
-dvc.repro:
-	dvc repro
+lint:
+	$(ENV_EXPORT) $(PYTHON_RUN) -m ruff check .
+
+format:
+	$(ENV_EXPORT) $(PYTHON_RUN) -m ruff format .
+
+mypy:
+	$(ENV_EXPORT) $(PYTHON_RUN) -m mypy oncotarget_lite
+
+bandit:
+	$(ENV_EXPORT) $(PYTHON_RUN) -m bandit -r oncotarget_lite -c pyproject.toml
+
+pre-commit:
+ifeq ($(HAS_UV),1)
+	$(RUN_CMD) pre-commit run --all-files
+else
+	pre-commit run --all-files
+endif
+
+security:
+	$(ENV_EXPORT) $(PYTHON_RUN) -m scripts.security_scan
+
+export-requirements:
+ifeq ($(HAS_UV),1)
+	UV_CACHE_DIR=.uv-cache $(UV) export --format=requirements-txt --no-hashes > requirements.txt
+else
+	@echo "uv not available; skipping requirements export" >&2
+endif
+
+docker.build.cpu:
+	docker build --file Dockerfile.cpu --target runtime --build-arg FAST=$(FAST_BOOL) --tag oncotarget-lite:cpu .
+
+docker.build.cuda:
+	docker build --file Dockerfile.cuda --target runtime --build-arg FAST=$(FAST_BOOL) --tag oncotarget-lite:cuda .
+
+docker.push.cpu:
+	docker push oncotarget-lite:cpu
+
+docker.push.cuda:
+	docker push oncotarget-lite:cuda
+
+clean:
+	rm -rf .venv __pycache__ mlruns models reports docs/site .pytest_cache .mypy_cache .ruff_cache
+	rm -f reports/run_context.json

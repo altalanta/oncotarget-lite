@@ -1,10 +1,10 @@
 # Quickstart
 
-## Install (CPU-only)
+## Install (CPU)
 
 ```bash
 python -m pip install --upgrade pip
-pip install oncotarget-lite[viz]
+pip install oncotarget-lite
 ```
 
 For editable development:
@@ -12,34 +12,27 @@ For editable development:
 ```bash
 git clone https://github.com/altalanta/oncotarget-lite.git
 cd oncotarget-lite
-pip install -e .[dev,viz]
+make setup        # installs via uv.lock when present
+make all FAST=1   # compact CI profile (under 10 minutes on 2 cores)
 ```
 
-## Validate the setup
+## Run Individual Stages
 
 ```bash
-oncotarget-lite system-info
-oncotarget-lite validate-data
+oncotarget-lite --ci prepare
+oncotarget-lite --ci train
+oncotarget-lite --ci eval
+oncotarget-lite --ci explain
+oncotarget-lite scorecard --reports-dir reports --shap-dir reports/shap
 ```
 
-## Train → Evaluate → Report (≤2 minutes on a laptop CPU)
+Use `oncotarget-lite all` for the full profile or add `--fast` / `--ci` to shrink workloads.
 
-```bash
-oncotarget-lite train --device cpu --out artifacts/
-# copy the "artifacts" path from the JSON response
-RUN_DIR="artifacts/<run_id_from_output>"
-oncotarget-lite evaluate --run-dir "$RUN_DIR"
-oncotarget-lite report --run-dir "$RUN_DIR"
-```
-
-!!! tip
-    Every CLI command emits JSON regardless of environment. When running in a TTY you also get compact tables for key metrics and rankings.
-
-## Launch the app
+## Streamlit Demo
 
 ```bash
 oncotarget-lite app run --port 8501
 ```
 
-Then open <http://localhost:8501> to explore predictions and SHAP explanations (install with `[viz]`).
-
+Visit <http://localhost:8501> to explore metrics and SHAP explanations. Install the optional
+`[cuda]` extra for GPU-enabled containers or `[docs]` to build the documentation locally.

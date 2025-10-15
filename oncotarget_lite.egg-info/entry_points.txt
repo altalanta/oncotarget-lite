@@ -1,2 +1,2 @@
 [console_scripts]
-oncotarget-lite = oncotarget_lite.cli:main
+oncotarget-lite = oncotarget_lite.cli:app

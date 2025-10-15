@@ -1,27 +1,36 @@
-# syntax=docker/dockerfile:1
+ARG PYTHON_VERSION=3.11
+ARG UV_VERSION=0.4.23
 
-FROM python:3.11-slim AS builder
-ENV PIP_NO_CACHE_DIR=1 \
-    PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu
-WORKDIR /build
+FROM python:${PYTHON_VERSION}-slim AS builder
+ARG UV_VERSION
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*
-COPY pyproject.toml README.md requirements.txt ./
+RUN pip install --no-cache-dir uv==${UV_VERSION} build
+COPY pyproject.toml uv.lock README.md requirements.txt ./
 COPY oncotarget_lite ./oncotarget_lite
-RUN python -m pip install --upgrade pip build
-RUN python -m build
+COPY scripts ./scripts
+RUN uv pip sync uv.lock && python -m build --wheel --no-isolation
 
-FROM python:3.11-slim AS runtime
-ENV PIP_NO_CACHE_DIR=1 \
-    PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu \
+FROM python:${PYTHON_VERSION}-slim AS runtime
+ARG UV_VERSION
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 WORKDIR /app
 RUN groupadd --system onco && useradd --system --create-home --gid onco --shell /bin/bash onco
-COPY --from=builder /build/dist/oncotarget_lite-*.whl /tmp/package.whl
-RUN python -m pip install --upgrade pip && pip install /tmp/package.whl[viz]
-COPY data ./data
-COPY app ./app
+RUN pip install --no-cache-dir uv==${UV_VERSION}
+COPY uv.lock pyproject.toml ./
+RUN uv pip sync uv.lock
+COPY --from=builder /app/dist/oncotarget_lite-*.whl /tmp/oncotarget_lite.whl
+RUN pip install --no-cache-dir /tmp/oncotarget_lite.whl && rm /tmp/oncotarget_lite.whl
+COPY configs ./configs
+COPY params.yaml ./params.yaml
+COPY params.ci.yaml ./params.ci.yaml
 COPY config.example.yaml ./config.example.yaml
+COPY scripts/download_data.py ./scripts/download_data.py
+RUN mkdir -p data reports models docs
 USER onco
-EXPOSE 8501
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health')" || exit 1
-ENTRYPOINT ["oncotarget-lite", "app", "run", "--port", "8501"]
+HEALTHCHECK --interval=1m --timeout=10s CMD oncotarget-lite --help >/dev/null 2>&1 || exit 1
+ENTRYPOINT ["oncotarget-lite"]
+CMD ["--help"]

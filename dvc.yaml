@@ -1,19 +1,4 @@
 stages:
-  fetch_data:
-    cmd: python scripts/fetch_data.py --regenerate
-    deps:
-      - scripts/fetch_data.py
-      - scripts/generate_synthetic_data.py
-    outs:
-      - data/raw/GTEx_subset.csv
-      - data/raw/TCGA_subset.csv
-      - data/raw/DepMap_essentials_subset.csv
-      - data/raw/uniprot_annotations.csv
-      - data/raw/ppi_degree_subset.csv
-      - path: data/manifest.json
-        cache: false
-        persist: true
-
   prepare:
     cmd: python -m oncotarget_lite.cli prepare --seed ${prepare.seed} --test-size ${prepare.test_size}
     params:
@@ -28,7 +13,6 @@ stages:
       - data/raw/DepMap_essentials_subset.csv
       - data/raw/uniprot_annotations.csv
       - data/raw/ppi_degree_subset.csv
-      - data/manifest.json
     outs:
       - data/processed/features.parquet
       - data/processed/labels.parquet
@@ -127,61 +111,5 @@ stages:
         cache: false
         persist: true
       - path: docs/index.html
-        cache: false
-        persist: true
-
-  ablations_train:
-    cmd: python -m oncotarget_lite.cli train --all-ablations --seed ${train.seed}
-    params:
-      - train.seed
-    deps:
-      - oncotarget_lite/cli.py
-      - oncotarget_lite/ablations.py
-      - oncotarget_lite/trainers/
-      - configs/ablations/
-      - data/processed/features.parquet
-      - data/processed/labels.parquet
-      - data/processed/splits.json
-    outs:
-      - path: models/ablations/
-        cache: false
-        persist: true
-      - path: reports/ablations/
-        cache: false
-        persist: true
-
-  ablations_eval:
-    cmd: python -m oncotarget_lite.cli ablations --seed ${eval.seed} --n-bootstrap ${eval.n_bootstrap} --ci ${eval.ci}
-    params:
-      - eval.seed
-      - eval.n_bootstrap
-      - eval.ci
-    deps:
-      - oncotarget_lite/cli.py
-      - oncotarget_lite/ablations_eval.py
-      - reports/ablations/
-    outs:
-      - path: reports/ablations/metrics.csv
-        cache: false
-        persist: true
-      - path: reports/ablations/deltas.json
-        cache: false
-        persist: true
-      - path: reports/ablations/summary.html
-        cache: false
-        persist: true
-
-  scorecard_merge:
-    cmd: python -m oncotarget_lite.cli scorecard
-    deps:
-      - oncotarget_lite/cli.py
-      - oncotarget_lite/reporting.py
-      - reports/predictions.parquet
-      - reports/shap/global_summary.png
-      - reports/metrics.json
-      - reports/bootstrap.json
-      - reports/ablations/summary.html
-    outs:
-      - path: reports/target_scorecard_final.html
         cache: false
         persist: true
