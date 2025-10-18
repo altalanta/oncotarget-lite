@@ -11,7 +11,7 @@ import yaml
 
 from .distributed import ablation_parallel, configure_distributed
 from .trainers.base import TrainerConfig
-from .trainers import LGBTrainer, LogisticRegressionTrainer, MLPTrainer, XGBTrainer
+from .trainers import get_trainer
 
 
 def load_ablation_config(config_path: Path) -> TrainerConfig:
@@ -32,16 +32,7 @@ def load_ablation_config(config_path: Path) -> TrainerConfig:
 
 def create_trainer(config: TrainerConfig):
     """Create trainer instance from config."""
-    if config.model_type == "logreg":
-        return LogisticRegressionTrainer(config)
-    elif config.model_type == "mlp":
-        return MLPTrainer(config)
-    elif config.model_type == "xgb":
-        return XGBTrainer(config)
-    elif config.model_type == "lgb":
-        return LGBTrainer(config)
-    else:
-        raise ValueError(f"Unknown model type: {config.model_type}")
+    return get_trainer(config.model_type, config)
 
 
 def discover_ablation_configs(configs_dir: Path = Path("configs/ablations")) -> list[Path]:

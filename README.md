@@ -35,6 +35,105 @@ The system supports multiple model architectures:
 - **Transformer** (`transformer`) - Attention-based architecture for biological sequences
 - **Graph Neural Network** (`gnn`) - Network-based learning for PPI and pathway data
 
+## Hyperparameter Optimization
+
+The system includes automated hyperparameter optimization using Optuna to find optimal model configurations:
+
+```bash
+# Optimize XGBoost hyperparameters
+python -m oncotarget_lite.cli optimize --model-type xgb --n-trials 100
+
+# Optimize Transformer model for maximum AUROC
+python -m oncotarget_lite.cli optimize --model-type transformer --metric auroc --n-trials 50
+
+# Use Makefile target
+make optimize
+```
+
+**Optimization Features:**
+- **Multi-model Support**: Works with all model types (logreg, xgb, lgb, mlp, transformer, gnn)
+- **Custom Metrics**: Optimize for AUROC or Average Precision
+- **Persistent Studies**: SQLite storage for resuming interrupted optimizations
+- **MLflow Integration**: Logs best parameters and results automatically
+- **Comprehensive Search Spaces**: Model-specific parameter ranges for effective optimization
+
+**Optimization Results:**
+- Best parameters and scores saved to `reports/optuna_summary_{model_type}.json`
+- Optimization history and trial details available for analysis
+- Automatic integration with existing training and evaluation pipeline
+
+## Advanced Interpretability Dashboard
+
+The system includes comprehensive interpretability visualization and validation through interactive dashboards:
+
+```bash
+# Generate comprehensive interpretability dashboard
+python -m oncotarget_lite.cli dashboard
+
+# Create model comparison dashboard
+python -m oncotarget_lite.cli dashboard --model-comparison --model-reports reports/validation_report_*.json
+
+# Use Makefile target
+make dashboard
+```
+
+**Dashboard Features:**
+- **Interactive Visualizations**: Global feature importance, gene contribution breakdowns, feature interaction heatmaps
+- **Validation Metrics**: Background consistency, feature stability, perturbation robustness, and overall quality scores
+- **Model Comparison**: Side-by-side interpretability analysis across different models
+- **Export Options**: HTML dashboards for interactive exploration, static PNG exports for reports
+- **Integration**: Automatically loads SHAP values and validation reports for comprehensive analysis
+
+**Dashboard Components:**
+- **Global Importance**: Enhanced bar charts with hover tooltips and color coding for top features
+- **Gene Contributions**: Waterfall plots showing how individual features contribute to predictions
+- **Feature Interactions**: Correlation heatmaps revealing feature relationships in SHAP space
+- **Validation Summary**: Multi-panel dashboard showing stability metrics and quality scores
+- **Model Comparison**: Bar charts comparing interpretability metrics across different models
+
+**Output Files:**
+- `reports/dashboard/interpretability_dashboard.html` - Main interactive dashboard
+- `reports/dashboard/static/` - Static PNG exports for inclusion in reports
+- Model comparison dashboards when using `--model-comparison` flag
+
+## Scalable Data Processing & Caching
+
+The system includes high-performance data processing with parallel loading, advanced caching, and memory optimization:
+
+```bash
+# Check cache statistics
+python -m oncotarget_lite.cli cache info
+
+# Clear cache files
+python -m oncotarget_lite.cli cache clear --pattern "*parquet"
+
+# Benchmark data loading performance
+python -m oncotarget_lite.cli cache benchmark
+
+# Use Makefile targets
+make cache
+```
+
+**Scalability Features:**
+- **Parallel Data Loading**: Load multiple CSV files simultaneously using multiprocessing
+- **Advanced Caching**: SHA256-based cache invalidation with compression and versioning
+- **Memory Optimization**: Chunked processing for large datasets with memory monitoring
+- **Performance Benchmarking**: Built-in benchmarking for feature extraction and data loading
+- **Automatic Cache Management**: Intelligent cache clearing and statistics reporting
+
+**Performance Optimizations:**
+- **Parallel Feature Extraction**: Extract multiple feature types simultaneously using ThreadPoolExecutor
+- **Chunked Processing**: Process large datasets in configurable chunks to manage memory usage
+- **Lazy Loading**: Only load data when needed, with intelligent caching strategies
+- **Memory Monitoring**: Track memory usage and provide optimization recommendations
+- **Cache Analytics**: Detailed cache statistics and performance metrics
+
+**Cache Management:**
+- Automatic cache invalidation based on file content and processing parameters
+- Compression support (Snappy for Parquet, configurable formats)
+- Pattern-based cache clearing for maintenance
+- Cache size and performance analytics
+
 ## Tracking & Lineage
 
 - Deterministic CLI (`python -m oncotarget_lite.cli ...`) with reproducible seeds (`PYTHONHASHSEED=0`).
@@ -226,8 +325,10 @@ Key files:
 | `make setup` | Create `.venv`, install pinned dependencies, install package editable |
 | `make prepare` | Regenerate processed features/labels/splits |
 | `make train` | Train logistic regression + log to MLflow |
+| `make optimize` | Run automated hyperparameter optimization with Optuna |
 | `make evaluate` | Compute metrics, bootstrap CIs, and calibration artefacts |
 | `make explain` | Generate SHAP PNGs and `shap_values.npz` |
+| `make dashboard` | Generate advanced interpretability dashboard with interactive visualizations |
 | `make scorecard` | Build `reports/target_scorecard.html` |
 | `make report-docs` | Refresh `docs/index.html` and model card metrics |
 | `make snapshot` | Capture Streamlit UI screenshot via Playwright |

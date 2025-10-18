@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: oncotarget-lite
-Version: 0.3.1.dev1+g9d2fe7730.d20251015
+Version: 0.3.1.dev1+g9d2fe7730.d20251017
 Summary: Lean oncology target triage toolkit
 Author: Altalanta ML Platform
 License: MIT
@@ -33,6 +33,9 @@ Requires-Dist: joblib==1.4.2
 Requires-Dist: scipy==1.13.1
 Requires-Dist: pyyaml==6.0.2
 Requires-Dist: python-dotenv==1.0.1
+Requires-Dist: optuna==3.5.0
+Requires-Dist: plotly==5.17.0
+Requires-Dist: kaleido==0.2.1
 Provides-Extra: dev
 Requires-Dist: pytest==8.3.3; extra == "dev"
 Requires-Dist: pytest-cov==5.0.0; extra == "dev"
@@ -104,6 +107,67 @@ The system supports multiple model architectures:
 **Modern Deep Learning Models:**
 - **Transformer** (`transformer`) - Attention-based architecture for biological sequences
 - **Graph Neural Network** (`gnn`) - Network-based learning for PPI and pathway data
+
+## Hyperparameter Optimization
+
+The system includes automated hyperparameter optimization using Optuna to find optimal model configurations:
+
+```bash
+# Optimize XGBoost hyperparameters
+python -m oncotarget_lite.cli optimize --model-type xgb --n-trials 100
+
+# Optimize Transformer model for maximum AUROC
+python -m oncotarget_lite.cli optimize --model-type transformer --metric auroc --n-trials 50
+
+# Use Makefile target
+make optimize
+```
+
+**Optimization Features:**
+- **Multi-model Support**: Works with all model types (logreg, xgb, lgb, mlp, transformer, gnn)
+- **Custom Metrics**: Optimize for AUROC or Average Precision
+- **Persistent Studies**: SQLite storage for resuming interrupted optimizations
+- **MLflow Integration**: Logs best parameters and results automatically
+- **Comprehensive Search Spaces**: Model-specific parameter ranges for effective optimization
+
+**Optimization Results:**
+- Best parameters and scores saved to `reports/optuna_summary_{model_type}.json`
+- Optimization history and trial details available for analysis
+- Automatic integration with existing training and evaluation pipeline
+
+## Advanced Interpretability Dashboard
+
+The system includes comprehensive interpretability visualization and validation through interactive dashboards:
+
+```bash
+# Generate comprehensive interpretability dashboard
+python -m oncotarget_lite.cli dashboard
+
+# Create model comparison dashboard
+python -m oncotarget_lite.cli dashboard --model-comparison --model-reports reports/validation_report_*.json
+
+# Use Makefile target
+make dashboard
+```
+
+**Dashboard Features:**
+- **Interactive Visualizations**: Global feature importance, gene contribution breakdowns, feature interaction heatmaps
+- **Validation Metrics**: Background consistency, feature stability, perturbation robustness, and overall quality scores
+- **Model Comparison**: Side-by-side interpretability analysis across different models
+- **Export Options**: HTML dashboards for interactive exploration, static PNG exports for reports
+- **Integration**: Automatically loads SHAP values and validation reports for comprehensive analysis
+
+**Dashboard Components:**
+- **Global Importance**: Enhanced bar charts with hover tooltips and color coding for top features
+- **Gene Contributions**: Waterfall plots showing how individual features contribute to predictions
+- **Feature Interactions**: Correlation heatmaps revealing feature relationships in SHAP space
+- **Validation Summary**: Multi-panel dashboard showing stability metrics and quality scores
+- **Model Comparison**: Bar charts comparing interpretability metrics across different models
+
+**Output Files:**
+- `reports/dashboard/interpretability_dashboard.html` - Main interactive dashboard
+- `reports/dashboard/static/` - Static PNG exports for inclusion in reports
+- Model comparison dashboards when using `--model-comparison` flag
 
 ## Tracking & Lineage
 
@@ -296,8 +360,10 @@ Key files:
 | `make setup` | Create `.venv`, install pinned dependencies, install package editable |
 | `make prepare` | Regenerate processed features/labels/splits |
 | `make train` | Train logistic regression + log to MLflow |
+| `make optimize` | Run automated hyperparameter optimization with Optuna |
 | `make evaluate` | Compute metrics, bootstrap CIs, and calibration artefacts |
 | `make explain` | Generate SHAP PNGs and `shap_values.npz` |
+| `make dashboard` | Generate advanced interpretability dashboard with interactive visualizations |
 | `make scorecard` | Build `reports/target_scorecard.html` |
 | `make report-docs` | Refresh `docs/index.html` and model card metrics |
 | `make snapshot` | Capture Streamlit UI screenshot via Playwright |

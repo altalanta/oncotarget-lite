@@ -32,7 +32,7 @@ class TrainConfig:
     class_weight: str | dict[str, float] | None = "balanced"
 
     # Common parameters across model types
-    model_type: str = "logreg"  # "logreg", "xgb", "lgb", "mlp"
+    model_type: str = "logreg"  # "logreg", "xgb", "lgb", "mlp", "transformer", "gnn"
     model_params: dict[str, Any] | None = None
     seed: int = 42
 
@@ -170,8 +170,32 @@ def _build_pipeline(config: TrainConfig) -> Pipeline:
         from sklearn.neural_network import MLPClassifier
         clf = MLPClassifier(**params)
 
+    elif config.model_type == "transformer":
+        from .trainers.transformer import TransformerTrainer, TrainerConfig
+        trainer_config = TrainerConfig(
+            name="transformer",
+            model_type="transformer",
+            model_params=params,
+            feature_type="all_features",
+            seed=config.seed,
+        )
+        trainer = TransformerTrainer(trainer_config)
+        return trainer.create_pipeline()
+
+    elif config.model_type == "gnn":
+        from .trainers.gnn import GNNTrainer, TrainerConfig
+        trainer_config = TrainerConfig(
+            name="gnn",
+            model_type="gnn",
+            model_params=params,
+            feature_type="all_features",
+            seed=config.seed,
+        )
+        trainer = GNNTrainer(trainer_config)
+        return trainer.create_pipeline()
+
     else:
-        raise ValueError(f"Unknown model type: {config.model_type}")
+        raise ValueError(f"Unknown model type: {config.model_type}. Available: logreg, xgb, lgb, mlp, transformer, gnn")
 
     return Pipeline(
         steps=[
