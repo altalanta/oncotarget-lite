@@ -1,0 +1,27 @@
+name: "Transformer"
+model:
+  type: "transformer"
+  params:
+    hidden_dim: 256
+    num_layers: 4
+    num_heads: 8
+    dropout: 0.1
+    max_position_embeddings: 1000
+
+features:
+  type: "all_features"
+
+training:
+  seed: 42
+  test_size: 0.3
+
+evaluation:
+  n_bootstrap: 1000
+  ci: 0.95
+  bins: 10
+
+tags:
+  - "deep_learning"
+  - "transformer"
+  - "attention"
+

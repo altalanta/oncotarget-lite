@@ -1,0 +1,26 @@
+name: "Graph Neural Network"
+model:
+  type: "gnn"
+  params:
+    hidden_dim: 128
+    num_layers: 3
+    dropout: 0.2
+    num_heads: 8
+
+features:
+  type: "all_features"
+
+training:
+  seed: 42
+  test_size: 0.3
+
+evaluation:
+  n_bootstrap: 1000
+  ci: 0.95
+  bins: 10
+
+tags:
+  - "deep_learning"
+  - "gnn"
+  - "graph_neural_network"
+
