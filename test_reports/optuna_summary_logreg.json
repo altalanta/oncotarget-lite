@@ -1,0 +1,113 @@
+{
+  "best_params": {
+    "C": 14.032200211184984,
+    "penalty": "l2",
+    "max_iter": 757,
+    "class_weight": null
+  },
+  "best_score": 0.9921875,
+  "n_trials": 10,
+  "best_trial": 3,
+  "optimization_history": [
+    {
+      "trial": 0,
+      "score": 0.5,
+      "params": {
+        "C": 0.06305027404588574,
+        "penalty": "l1",
+        "max_iter": 866,
+        "class_weight": null
+      }
+    },
+    {
+      "trial": 1,
+      "score": 0.9642857142857143,
+      "params": {
+        "C": 0.0020630890580783452,
+        "penalty": "l2",
+        "max_iter": 747,
+        "class_weight": "balanced"
+      }
+    },
+    {
+      "trial": 2,
+      "score": 0.9910714285714286,
+      "params": {
+        "C": 0.12032519180005165,
+        "penalty": "l2",
+        "max_iter": 798,
+        "class_weight": null
+      }
+    },
+    {
+      "trial": 3,
+      "score": 0.9921875,
+      "params": {
+        "C": 14.032200211184984,
+        "penalty": "l2",
+        "max_iter": 757,
+        "class_weight": null
+      }
+    },
+    {
+      "trial": 4,
+      "score": 0.5,
+      "params": {
+        "C": 4.056153133688496,
+        "penalty": "l1",
+        "max_iter": 187,
+        "class_weight": "balanced"
+      }
+    },
+    {
+      "trial": 5,
+      "score": 0.9910714285714286,
+      "params": {
+        "C": 0.22720650633360875,
+        "penalty": "l2",
+        "max_iter": 642,
+        "class_weight": null
+      }
+    },
+    {
+      "trial": 6,
+      "score": 0.9910714285714286,
+      "params": {
+        "C": 0.05821294501032909,
+        "penalty": "l2",
+        "max_iter": 595,
+        "class_weight": null
+      }
+    },
+    {
+      "trial": 7,
+      "score": 0.5,
+      "params": {
+        "C": 0.2655342856534456,
+        "penalty": "l1",
+        "max_iter": 274,
+        "class_weight": null
+      }
+    },
+    {
+      "trial": 8,
+      "score": 0.5,
+      "params": {
+        "C": 0.019237774632963174,
+        "penalty": "l1",
+        "max_iter": 878,
+        "class_weight": null
+      }
+    },
+    {
+      "trial": 9,
+      "score": 0.9921875,
+      "params": {
+        "C": 5.237731305609676,
+        "penalty": "l2",
+        "max_iter": 983,
+        "class_weight": null
+      }
+    }
+  ]
+}

@@ -29,9 +29,9 @@ CLI := $(ENV_EXPORT) $(PYTHON_RUN) -m oncotarget_lite.cli $(PROFILE_ARGS)
 
 .DEFAULT_GOAL := all
 
-.PHONY: setup sync download-data prepare train evaluate explain scorecard snapshot docs docs-targets \ 
-    monitor-report interpretability-validate model-card docs-monitoring docs-interpretability mkdocs-build \ 
-    all clean pytest lint format mypy bandit pre-commit security ablations distributed monitor \ 
+.PHONY: setup sync download-data prepare train optimize evaluate explain dashboard cache scorecard snapshot docs docs-targets \
+    monitor-report interpretability-validate model-card docs-monitoring docs-interpretability mkdocs-build \
+    all clean pytest lint format mypy bandit pre-commit security ablations distributed monitor \
     validate-interpretability export-requirements docker.build.cpu docker.build.cuda docker.push.cpu docker.push.cuda
 
 setup:
@@ -59,11 +59,20 @@ prepare:
 train:
 	$(CLI) train
 
+optimize:
+	$(CLI) optimize
+
 evaluate:
 	$(CLI) eval
 
 explain:
 	$(CLI) explain
+
+dashboard:
+	$(CLI) dashboard
+
+cache:
+	$(CLI) cache
 
 scorecard:
 	$(CLI) scorecard
@@ -174,7 +183,7 @@ distributed:
 validate-interpretability:
 	$(CLI) validate-interpretability
 
-all: setup prepare train evaluate explain scorecard docs snapshot
+all: setup prepare train optimize evaluate explain dashboard cache scorecard docs snapshot
 
 pytest:
 	$(ENV_EXPORT) $(PYTHON_RUN) -m pytest -q

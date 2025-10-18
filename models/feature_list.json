@@ -1,0 +1,22 @@
+{
+  "feature_order": [
+    "ppi_degree",
+    "ppi_clustering",
+    "ppi_betweenness",
+    "ppi_closeness",
+    "domain_count",
+    "unique_domain_count",
+    "domain_diversity_ratio",
+    "domain_PF00001",
+    "domain_PF00002",
+    "domain_PF00003",
+    "domain_PF00004",
+    "domain_PF00005",
+    "domain_PF00006",
+    "domain_PF00007",
+    "domain_PF00008",
+    "transmembrane_domain_count",
+    "catalytic_domain_count",
+    "domain_entropy"
+  ]
+}

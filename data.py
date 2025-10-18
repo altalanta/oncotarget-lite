@@ -14,6 +14,8 @@ from sklearn.model_selection import train_test_split
 
 from .utils import dataset_hash, ensure_dir, save_dataframe, save_json, set_seeds
 from .features.orchestrator import FeatureOrchestrator
+from .scalable_loader import ScalableDataLoader
+from .scalable_orchestrator import ScalableFeatureOrchestrator
 
 RAW_DIR = Path("data/raw")
 PROCESSED_DIR = Path("data/processed")
@@ -168,10 +170,18 @@ def _merge_tables(tables: dict[str, pd.DataFrame]) -> pd.DataFrame:
     return merged
 
 
-def build_feature_matrix(raw_dir: Path = RAW_DIR, use_advanced_features: bool = True) -> tuple[pd.DataFrame, pd.Series]:
-    """Load cached CSVs and derive model-ready features + labels."""
+def build_feature_matrix(raw_dir: Path = RAW_DIR, use_advanced_features: bool = True, use_scalable_processing: bool = True) -> tuple[pd.DataFrame, pd.Series]:
+    """Load cached CSVs and derive model-ready features + labels with optional scalable processing."""
 
-    tables = _load_raw_tables(raw_dir)
+    if use_scalable_processing:
+        # Use scalable data loader for better performance
+        loader = ScalableDataLoader()
+        tables = loader.load_raw_tables_parallel(raw_dir)
+        print(f"✅ Loaded {len(tables)} data tables in parallel")
+    else:
+        # Use original sequential loading
+        tables = _load_raw_tables(raw_dir)
+
     merged = _merge_tables(tables)
 
     normal_cols = [col for col in merged if col.startswith(_DEF_NORMAL_PREFIX)]
@@ -201,7 +211,18 @@ def build_feature_matrix(raw_dir: Path = RAW_DIR, use_advanced_features: bool = 
     # Advanced biological features (optional)
     if use_advanced_features:
         print("🔬 Extracting advanced biological features...")
-        feature_orchestrator = FeatureOrchestrator()
+        if use_scalable_processing:
+            feature_orchestrator = ScalableFeatureOrchestrator()
+            advanced_features = feature_orchestrator.extract_features_parallel(
+                pd.Series(merged.index),
+                cache_key="build_feature_matrix_advanced"
+            )
+        else:
+            feature_orchestrator = FeatureOrchestrator()
+            advanced_features = feature_orchestrator.extract_all_features(
+                pd.Series(merged.index),
+                cache_key="build_feature_matrix_advanced"
+            )
 
         # Create cache key from dataset hash for reproducible caching
         genes = merged.index
@@ -209,19 +230,28 @@ def build_feature_matrix(raw_dir: Path = RAW_DIR, use_advanced_features: bool = 
         cache_key = f"advanced_features_{dataset_hash_str}"
 
         try:
-            advanced_features = feature_orchestrator.extract_all_features(
-                genes,
-                cache_key=cache_key
-            )
+            if use_scalable_processing:
+                advanced_features = feature_orchestrator.extract_features_parallel(
+                    genes,
+                    cache_key=cache_key
+                )
+            else:
+                advanced_features = feature_orchestrator.extract_all_features(
+                    genes,
+                    cache_key=cache_key
+                )
 
             # Merge advanced features with basic features
             features = pd.concat([features, advanced_features], axis=1)
 
             # Print feature summary
-            summary = feature_orchestrator.get_feature_summary(advanced_features)
-            print(f"✅ Advanced features extracted: {summary['total_features']} features across {summary['total_genes']} genes")
-            for category, count in summary['feature_categories'].items():
-                print(f"   - {category}: {count} features")
+            if hasattr(feature_orchestrator, 'get_feature_summary'):
+                summary = feature_orchestrator.get_feature_summary(advanced_features)
+                print(f"✅ Advanced features extracted: {summary['total_features']} features across {summary['total_genes']} genes")
+                for category, count in summary['feature_categories'].items():
+                    print(f"   - {category}: {count} features")
+            else:
+                print(f"✅ Advanced features extracted: {advanced_features.shape[1]} features across {advanced_features.shape[0]} genes")
 
         except Exception as e:
             print(f"⚠️ Advanced feature extraction failed: {e}")

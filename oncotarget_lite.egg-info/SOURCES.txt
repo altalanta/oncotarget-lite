@@ -1,3 +1,4 @@
+.coverage
 .dvcignore
 .gitignore
 .pre-commit-config.yaml
@@ -18,7 +19,12 @@ requirements.txt
 .github/workflows/ci.yml
 .github/workflows/metrics_docs.yml
 .github/workflows/release.yml
+data/processed/.gitkeep
+data/raw/DepMap_essentials_subset.csv
+data/raw/GTEx_subset.csv
+data/raw/TCGA_subset.csv
 data/raw/ppi_degree_subset.csv
+data/raw/uniprot_annotations.csv
 docs/cli.md
 docs/data-schema.md
 docs/index.md
@@ -45,11 +51,13 @@ oncotarget_lite/data.py
 oncotarget_lite/distributed.py
 oncotarget_lite/eval.py
 oncotarget_lite/explain.py
+oncotarget_lite/interpretability_dashboard.py
 oncotarget_lite/interpretability_validation.py
 oncotarget_lite/mlflow_utils.py
 oncotarget_lite/model.py
 oncotarget_lite/model_card.md
 oncotarget_lite/monitoring.py
+oncotarget_lite/optimizers.py
 oncotarget_lite/reporting.py
 oncotarget_lite/schemas.py
 oncotarget_lite/streamlit_app.py
