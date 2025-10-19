@@ -1,0 +1,16 @@
+{
+  "primary_metric": "auroc",
+  "weight_auroc": 0.3,
+  "weight_ap": 0.25,
+  "weight_accuracy": 0.15,
+  "weight_f1": 0.15,
+  "weight_calibration": 0.1,
+  "weight_efficiency": 0.05,
+  "min_auroc": 0.7,
+  "min_calibration_error": 0.1,
+  "max_training_time": null,
+  "max_inference_time": null,
+  "require_statistical_significance": true,
+  "significance_level": 0.05,
+  "min_sample_size": 100
+}

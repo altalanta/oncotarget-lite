@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import pandas as pd
 
-from .data import DataPreparationError
+from .exceptions import DataPreparationError
 from .utils import ensure_dir
 
 

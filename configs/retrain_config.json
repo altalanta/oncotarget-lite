@@ -1,0 +1,17 @@
+{
+  "enable_performance_trigger": true,
+  "performance_threshold_drop": 0.02,
+  "enable_data_drift_trigger": true,
+  "data_drift_threshold": 0.1,
+  "enable_scheduled_trigger": true,
+  "schedule_interval_days": 7,
+  "enable_feature_drift_trigger": true,
+  "feature_drift_threshold": 0.05,
+  "max_retrain_attempts": 3,
+  "min_samples_for_retrain": 1000,
+  "validation_split": 0.2,
+  "auto_deploy_improvements": true,
+  "min_improvement_threshold": 0.005,
+  "enable_rollback": true,
+  "rollback_window_hours": 24
+}

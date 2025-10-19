@@ -214,6 +214,315 @@ The monitoring system automatically detects:
 - **Feature Drift**: Changes in feature importance rankings
 - **Data Quality Issues**: Anomalies in class balance or sample characteristics
 
+## Automated Model Retraining
+
+The system includes intelligent automated retraining that monitors model performance and triggers retraining when needed:
+
+### Automated Retraining Triggers
+
+The system automatically retrains models based on multiple intelligent triggers:
+
+- **Performance Degradation**: Triggers when AUROC or AP drops by more than 2% from baseline
+- **Data Drift Detection**: Activates when significant distribution changes are detected in predictions
+- **Scheduled Retraining**: Regular weekly retraining to ensure models stay current
+- **Feature Drift**: Triggers when feature importance patterns change significantly
+
+### Automated Retraining Commands
+
+```bash
+# Check if retraining is needed and run if triggered
+python -m oncotarget_lite.cli retrain --schedule
+
+# Force retraining regardless of triggers
+python -m oncotarget_lite.cli retrain --force
+
+# Dry run to see what would happen without executing
+python -m oncotarget_lite.cli retrain --dry-run
+
+# Use Makefile target
+make retrain
+```
+
+**Retraining Features:**
+- **Intelligent Triggering**: Multiple detection mechanisms for optimal retraining timing
+- **Best Practices Integration**: Uses optimal hyperparameters from previous optimization runs
+- **Automated Validation**: Compares new model performance against baseline before deployment
+- **Safe Deployment**: Only deploys models that show meaningful improvement (>0.5% in primary metrics)
+- **Rollback Support**: Can rollback to previous model if issues are detected
+- **Comprehensive Logging**: All retraining activities logged to MLflow for audit trails
+
+**Configuration:**
+- Customize trigger thresholds and behavior via `configs/retrain_config.json`
+- Adjust performance thresholds, scheduling intervals, and deployment criteria
+- Enable/disable specific trigger types based on operational needs
+
+**Output:**
+- New model versions automatically logged to MLflow
+- Performance comparisons and deployment decisions recorded
+- Deployment metadata saved for audit trails
+- Integration with existing monitoring and alerting systems
+
+### Model Rollback
+
+If an automated deployment causes issues, you can rollback to a previous model:
+
+```bash
+# Rollback to a model from the last 24 hours
+python -m oncotarget_lite.cli rollback
+
+# Rollback to a model from the last 48 hours
+python -m oncotarget_lite.cli rollback --hours-back 48
+
+# Use Makefile target (force-rollback automatically)
+make rollback
+```
+
+**Rollback Features:**
+- **Safe Rollback**: Automatically backs up current model before deployment
+- **Time-based Selection**: Choose rollback target based on time window
+- **Confirmation Prompts**: Interactive confirmation to prevent accidental rollbacks
+- **Audit Trail**: All rollback operations logged with timestamps and reasons
+
+## Enhanced Model Serving & API Layer
+
+The system includes a production-ready FastAPI-based model serving layer with advanced features for real-time predictions, model versioning, and A/B testing:
+
+### Model Serving Features
+
+**Core Capabilities:**
+- **RESTful API**: Clean, documented endpoints for predictions and model management
+- **Batch Processing**: Efficient batch prediction capabilities for high-throughput scenarios
+- **Caching**: In-memory prediction caching with TTL for improved performance
+- **Health Monitoring**: Built-in health checks and system status endpoints
+
+### Model Versioning & Deployment
+
+**Version Management:**
+- **Semantic Versioning**: Models are versioned with timestamps and run IDs
+- **Production Deployment**: Seamless deployment of models to production with rollback support
+- **Metadata Tracking**: Comprehensive metadata including performance metrics and feature names
+- **Model Registry**: Centralized registry for managing multiple model versions
+
+**Deployment Commands:**
+```bash
+# Deploy a model version to production
+python -m oncotarget_lite.cli deploy model_20250101_123456_abc12345
+
+# List all available model versions
+python -m oncotarget_lite.cli versions
+
+# List versions with detailed metrics
+python -m oncotarget_lite.cli versions --details
+
+# Clean up old model versions (dry run)
+python -m oncotarget_lite.cli cleanup --dry-run
+
+# Clean up old versions (actually delete)
+python -m oncotarget_lite.cli cleanup --keep-recent 3
+
+# Use Makefile targets
+make deploy VERSION_ID=model_20250101_123456_abc12345
+make versions
+make cleanup
+```
+
+### FastAPI Server
+
+**Server Features:**
+- **Async Support**: Asynchronous prediction handling for high concurrency
+- **CORS Enabled**: Cross-origin resource sharing for web integration
+- **Auto Documentation**: Interactive API documentation at `/docs`
+- **Request Tracing**: Request ID tracking for debugging and monitoring
+
+**Starting the Server:**
+```bash
+# Start server with default settings
+python -m oncotarget_lite.cli serve
+
+# Start server on custom port
+python -m oncotarget_lite.cli serve --port 9000
+
+# Start server with auto-reload for development
+python -m oncotarget_lite.cli serve --reload
+
+# Use Makefile target
+make serve
+```
+
+**API Endpoints:**
+- `POST /predict` - Single prediction
+- `POST /predict/batch` - Batch predictions
+- `GET /models` - List all model versions
+- `GET /models/{version_id}` - Get specific model details
+- `GET /ab-tests` - List A/B tests
+- `POST /ab-tests` - Create A/B test
+- `GET /health` - Health check
+- `POST /cache/clear` - Clear prediction cache
+
+**Example API Usage:**
+```bash
+# Single prediction
+curl -X POST "http://localhost:8000/predict" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "features": {"gene_A": 0.5, "gene_B": 0.3, "clinical_score": 0.8},
+    "model_version": "model_20250101_123456_abc12345"
+  }'
+
+# Batch prediction
+curl -X POST "http://localhost:8000/predict/batch" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "samples": [
+      {"gene_A": 0.5, "gene_B": 0.3, "clinical_score": 0.8},
+      {"gene_A": 0.2, "gene_B": 0.7, "clinical_score": 0.4}
+    ]
+  }'
+```
+
+### A/B Testing Framework
+
+**A/B Testing Features:**
+- **Traffic Splitting**: Configurable percentage-based routing between model versions
+- **Request-based Routing**: Consistent model selection based on request ID hashing
+- **Test Management**: Create, manage, and monitor A/B tests
+- **Performance Comparison**: Side-by-side evaluation of model versions
+
+**A/B Testing Commands:**
+```bash
+# Create an A/B test (requires server to be running)
+curl -X POST "http://localhost:8000/ab-tests" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "test_id": "experiment_001",
+    "model_a": "model_20250101_123456_abc12345",
+    "model_b": "model_20250102_154321_def67890",
+    "traffic_split": 0.5,
+    "start_time": "2025-01-01T00:00:00Z"
+  }'
+
+# List A/B tests
+curl "http://localhost:8000/ab-tests"
+```
+
+**A/B Testing Workflow:**
+1. **Setup**: Create A/B test configuration with two model versions
+2. **Traffic Routing**: Requests are automatically routed based on hash-based assignment
+3. **Monitoring**: Track performance differences between model versions
+4. **Decision**: Choose winning model based on performance metrics
+5. **Deployment**: Deploy winning model to production
+
+### Integration with Automated Retraining
+
+The model serving layer integrates seamlessly with automated retraining:
+
+**Automated Deployment:**
+- New models from automated retraining are automatically versioned and deployed
+- Performance metrics are captured and stored with each version
+- Rollback capabilities ensure safe deployment of new models
+
+**Monitoring Integration:**
+- Server health metrics are integrated with the monitoring system
+- Prediction performance is tracked and can trigger retraining
+- Cache performance and hit rates are monitored
+
+## Advanced Model Comparison & Selection Framework
+
+The system includes sophisticated tools for comparing and selecting the best models based on comprehensive criteria and statistical analysis:
+
+### Model Comparison Features
+
+**Core Capabilities:**
+- **Multi-Criteria Selection**: Weighted scoring across multiple performance metrics
+- **Statistical Significance Testing**: Rigorous comparison between model versions
+- **Interactive Visualizations**: Side-by-side performance comparisons with statistical heatmaps
+- **Automated Ranking**: Composite scoring with customizable weights and thresholds
+
+### Model Selection Criteria
+
+**Configurable Criteria:**
+- **Performance Weights**: Customizable importance weights for AUROC, AP, Accuracy, F1, Calibration, Efficiency
+- **Minimum Thresholds**: Set minimum acceptable values for key metrics
+- **Statistical Requirements**: Configure significance levels and sample size requirements
+- **Efficiency Constraints**: Set maximum acceptable training/inference times
+
+**Selection Commands:**
+```bash
+# Compare models using default criteria
+python -m oncotarget_lite.cli compare
+
+# Compare models with custom criteria
+python -m oncotarget_lite.cli compare --criteria-config configs/comparison_criteria.json
+
+# Generate detailed comparison report
+python -m oncotarget_lite.cli compare --output-dir reports/model_comparison
+
+# Launch interactive comparison dashboard
+python -m oncotarget_lite.cli compare-interactive
+
+# Use Makefile targets
+make compare
+make compare-interactive
+```
+
+### Interactive Comparison Dashboard
+
+**Visualization Features:**
+- **Performance Comparison Plots**: Side-by-side bar charts for key metrics
+- **Model Ranking Charts**: Visual ranking by composite scores with color coding
+- **Statistical Significance Heatmaps**: P-value matrices showing significant differences
+- **Comprehensive Reports**: Markdown reports with detailed analysis and recommendations
+
+**Dashboard Components:**
+- **Performance Overview**: Multi-metric comparison across all models
+- **Ranking Visualization**: Clear visual ranking with scores and confidence intervals
+- **Statistical Analysis**: Heatmap of pairwise significance tests
+- **Criteria Transparency**: Display of selection criteria and thresholds used
+
+**Generated Files:**
+- `reports/model_comparison/comparison_summary.json` - Machine-readable summary
+- `reports/model_comparison/model_comparison_report.md` - Human-readable report
+- `reports/model_comparison/performance_comparison.html` - Interactive performance plot
+- `reports/model_comparison/model_ranking.html` - Interactive ranking visualization
+- `reports/model_comparison/statistical_significance.html` - Statistical analysis heatmap
+
+### Statistical Analysis
+
+**Significance Testing:**
+- **Pairwise Comparisons**: Statistical tests between all model pairs
+- **P-value Calculation**: Formal significance testing with configurable alpha levels
+- **Effect Size Measurement**: Quantify practical significance of differences
+- **Multiple Testing Correction**: Account for multiple comparisons
+
+**Analysis Workflow:**
+1. **Model Filtering**: Remove models below minimum thresholds
+2. **Composite Scoring**: Calculate weighted scores across all criteria
+3. **Statistical Testing**: Perform significance tests between models
+4. **Ranking & Recommendation**: Provide clear recommendations with confidence
+
+### Integration with Existing Systems
+
+**Seamless Integration:**
+- **Model Registry Integration**: Automatically loads models from version registry
+- **Retraining Pipeline**: Uses comparison results to inform deployment decisions
+- **Monitoring System**: Statistical results feed into monitoring and alerting
+- **MLflow Logging**: All comparison activities logged for audit trails
+
+**Example Workflow:**
+```bash
+# 1. Run automated retraining to generate new models
+make retrain
+
+# 2. Compare all models to find the best one
+make compare
+
+# 3. Review the interactive dashboard
+# Open reports/model_comparison/ files in browser
+
+# 4. Deploy the recommended model
+make deploy VERSION_ID=<recommended_model_id>
+```
+
 ## Interpretability Validation
 
 The system includes comprehensive validation for SHAP explanations and model interpretability:
@@ -338,6 +647,14 @@ Key files:
 | **`make security`** | **Run security audit on dependencies** |
 | **`make monitor`** | **Check model performance and drift status** |
 | **`make validate-interpretability`** | **Run interpretability validation on SHAP explanations** |
+| `make retrain` | **Automated model retraining with intelligent triggers** |
+| `make deploy` | **Deploy model version to production** |
+| `make versions` | **List all model versions** |
+| `make cleanup` | **Clean up old model versions** |
+| `make serve` | **Start model serving server** |
+| `make compare` | **Compare and rank models using advanced criteria** |
+| `make compare-interactive` | **Launch interactive model comparison dashboard** |
+| `make rollback` | **Rollback to previous model version** |
 | `make all` | Full deterministic chain |
 | `make pytest` | Run lightweight unit tests |
 

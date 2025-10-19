@@ -32,7 +32,7 @@ CLI := $(ENV_EXPORT) $(PYTHON_RUN) -m oncotarget_lite.cli $(PROFILE_ARGS)
 .PHONY: setup sync download-data prepare train optimize evaluate explain dashboard cache scorecard snapshot docs docs-targets \
     monitor-report interpretability-validate model-card docs-monitoring docs-interpretability mkdocs-build \
     all clean pytest lint format mypy bandit pre-commit security ablations distributed monitor \
-    validate-interpretability export-requirements docker.build.cpu docker.build.cuda docker.push.cpu docker.push.cuda
+    validate-interpretability retrain deploy versions cleanup serve rollback compare compare-interactive export-requirements docker.build.cpu docker.build.cuda docker.push.cpu docker.push.cuda
 
 setup:
 ifeq ($(HAS_UV),1)
@@ -182,6 +182,31 @@ distributed:
 
 validate-interpretability:
 	$(CLI) validate-interpretability
+
+retrain:
+	$(CLI) retrain --schedule
+
+rollback:
+	$(CLI) rollback --force-rollback
+
+deploy:
+	@echo "Usage: make deploy VERSION_ID=<version_id>"
+	@echo "Example: make deploy VERSION_ID=model_20250101_123456_abc12345"
+
+versions:
+	$(CLI) versions
+
+cleanup:
+	$(CLI) cleanup --dry-run
+
+serve:
+	$(CLI) serve
+
+compare:
+	$(CLI) compare
+
+compare-interactive:
+	$(CLI) compare-interactive
 
 all: setup prepare train optimize evaluate explain dashboard cache scorecard docs snapshot
 

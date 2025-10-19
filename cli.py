@@ -72,7 +72,7 @@ def _main_callback(
         show_default=False,
     ),
     fast: bool = typer.Option(False, "--fast", help="Use the CI profile for a rapid smoke run"),
-    ci: bool = typer.Option(
+    ci_mode: bool = typer.Option(
         False,
         "--ci",
         help="Alias for --fast to align with CI and automation scripts",
@@ -80,7 +80,7 @@ def _main_callback(
 ) -> None:
     """Global CLI entry-point to wire profile shortcuts before subcommands execute."""
 
-    if fast or ci:
+    if fast or ci_mode:
         os.environ[PROFILE_ENV_VAR] = CI_PROFILE_NAME
     elif profile:
         os.environ[PROFILE_ENV_VAR] = profile
@@ -133,7 +133,7 @@ def prepare(
         None, help="Parameter profile to apply (e.g. ci)", show_default=False
     ),
     fast: bool = typer.Option(False, "--fast", help="Use the CI profile for a rapid smoke run"),
-    ci: bool = typer.Option(False, "--ci", help="Alias for --fast to align with automation scripts"),
+    ci_mode: bool = typer.Option(False, "--ci", help="Alias for --fast to align with automation scripts"),
 ) -> None:
     """Create processed features, labels, and splits."""
 
@@ -141,7 +141,7 @@ def prepare(
         "prepare",
         profile=profile,
         fast=fast,
-        ci=ci,
+        ci=ci_mode,
         base={"test_size": test_size, "seed": seed},
     )
     test_size = float(resolved["test_size"])
@@ -179,7 +179,7 @@ def train(
         None, help="Parameter profile to apply (e.g. ci)", show_default=False
     ),
     fast: bool = typer.Option(False, "--fast", help="Use the CI profile for a rapid smoke run"),
-    ci: bool = typer.Option(False, "--ci", help="Alias for --fast to align with automation scripts"),
+    ci_mode: bool = typer.Option(False, "--ci", help="Alias for --fast to align with automation scripts"),
 ) -> None:
     """Train a model or run ablation experiments."""
 
@@ -187,7 +187,7 @@ def train(
         "train",
         profile=profile,
         fast=fast,
-        ci=ci,
+        ci=ci_mode,
         base={"C": C, "max_iter": max_iter, "seed": seed, "model_type": model_type},
     )
     C = float(overrides["C"])
@@ -313,7 +313,7 @@ def cache(
         stats = loader.get_cache_stats()
         typer.echo(f"📊 Cache Statistics:")
         typer.echo(f"   Total files: {stats['total_files']}")
-        typer.echo(f"   Total size: {stats['total_size_mb']".2f"} MB")
+        typer.echo(f"   Total size: {stats['total_size_mb']:.2f} MB")
         typer.echo(f"   File sizes: {list(stats['file_sizes'].keys())[:5]}...")
 
     elif action == "clear":
@@ -326,7 +326,7 @@ def cache(
         import numpy as np
 
         # Create test data
-        test_genes = pd.Series([f"GENE{i"04d"}" for i in range(100)])
+        test_genes = pd.Series([f"GENE{i:04d}" for i in range(100)])
 
         start_time = time.time()
         loader.load_files_parallel({
@@ -334,7 +334,7 @@ def cache(
         })
         end_time = time.time()
 
-        typer.echo(f"⏱️  Benchmark completed in {end_time - start_time:.".2f"")
+        typer.echo(f"⏱️  Benchmark completed in {end_time - start_time:.2f}")
 
     else:
         typer.echo(f"❌ Unknown action: {action}. Use: info, clear, benchmark")
@@ -400,7 +400,7 @@ def optimize(
 def eval_cmd(
     reports_dir: Path = typer.Option(Path("reports"), dir_okay=True),
     n_bootstrap: int = typer.Option(1000, min=100, max=2000),
-    ci_value: float = typer.Option(0.95, "--ci", min=0.5, max=0.999),
+    confidence_interval: float = typer.Option(0.95, "--ci", min=0.5, max=0.999),
     bins: int = typer.Option(10, min=5, max=20),
     seed: int = typer.Option(42),
     distributed: bool = typer.Option(True, help="Use distributed computing for bootstrap"),
@@ -423,14 +423,14 @@ def eval_cmd(
         ci=ci_profile,
         base={
             "n_bootstrap": n_bootstrap,
-            "ci": ci_value,
+            "ci": confidence_interval,
             "bins": bins,
             "seed": seed,
             "distributed": distributed,
         },
     )
     n_bootstrap = int(overrides["n_bootstrap"])
-    ci_value = float(overrides["ci"])
+    confidence_interval = float(overrides["ci"])
     bins = int(overrides["bins"])
     seed = int(overrides["seed"])
     distributed = bool(overrides["distributed"])
@@ -439,7 +439,7 @@ def eval_cmd(
     result = eval_module.evaluate_predictions(
         reports_dir=reports_dir,
         n_bootstrap=n_bootstrap,
-        ci=ci_value,
+        ci=confidence_interval,
         bins=bins,
         seed=seed,
         distributed=distributed,
@@ -478,7 +478,7 @@ def eval_cmd(
 def ablations_cmd(
     reports_dir: Path = typer.Option(Path("reports"), dir_okay=True, help="Reports directory"),
     n_bootstrap: int = typer.Option(1000, min=100, max=2000, help="Bootstrap samples"),
-    ci: float = typer.Option(0.95, min=0.5, max=0.999, help="Confidence interval"),
+    confidence_interval: float = typer.Option(0.95, min=0.5, max=0.999, help="Confidence interval"),
     seed: int = typer.Option(42, help="Random seed"),
     distributed: bool = typer.Option(True, help="Use distributed computing for experiments"),
     parallel_jobs: int = typer.Option(-1, help="Number of parallel jobs (-1 for all cores)"),
@@ -500,14 +500,14 @@ def ablations_cmd(
         ci=ci_profile,
         base={
             "n_bootstrap": n_bootstrap,
-            "ci": ci,
+            "ci": confidence_interval,
             "seed": seed,
             "distributed": distributed,
             "parallel_jobs": parallel_jobs,
         },
     )
     n_bootstrap = int(overrides["n_bootstrap"])
-    ci = float(overrides["ci"])
+    confidence_interval = float(overrides["ci"])
     seed = int(overrides["seed"])
     distributed = bool(overrides["distributed"])
     parallel_jobs = int(overrides["parallel_jobs"])
@@ -531,7 +531,7 @@ def ablations_cmd(
     result = aggregate_ablation_results(
         reports_dir=reports_dir,
         n_bootstrap=n_bootstrap,
-        ci=ci,
+        ci=confidence_interval,
         seed=seed,
     )
 
@@ -551,7 +551,7 @@ def explain(
         None, help="Parameter profile to apply (e.g. ci)", show_default=False
     ),
     fast: bool = typer.Option(False, "--fast", help="Use the CI profile for a rapid smoke run"),
-    ci: bool = typer.Option(False, "--ci", help="Alias for --fast to align with CI"),
+    ci_mode: bool = typer.Option(False, "--ci", help="Alias for --fast to align with CI"),
 ) -> None:
     """Generate SHAP explanations and persist PNG artefacts."""
 
@@ -559,7 +559,7 @@ def explain(
         "explain",
         profile=profile,
         fast=fast,
-        ci=ci,
+        ci=ci_mode,
         base={
             "seed": seed,
             "background_size": background_size,
@@ -950,6 +950,94 @@ def validate_interpretability_cmd(
         raise typer.Exit(1)
 
 
+@app.command("retrain")
+def retrain_cmd(
+    config: Optional[Path] = typer.Option(None, help="Retraining configuration file"),
+    dry_run: bool = typer.Option(False, help="Show what would be done without executing"),
+    force: bool = typer.Option(False, help="Force retraining even if no triggers are active"),
+    schedule: bool = typer.Option(False, help="Run in scheduled mode (check triggers automatically)"),
+) -> None:
+    """Automated model retraining with intelligent triggers."""
+    from .automated_retraining import retrain_command
+
+    retrain_command(config=config, dry_run=dry_run, force=force, schedule=schedule)
+
+
+@app.command("deploy")
+def deploy_cmd(
+    version_id: str = typer.Argument(..., help="Model version ID to deploy"),
+    confirm: bool = typer.Option(True, help="Confirm deployment"),
+) -> None:
+    """Deploy a model version to production."""
+    from .model_deployment import deploy_cmd as deploy_func
+    deploy_func(version_id=version_id, confirm=confirm)
+
+
+@app.command("rollback")
+def rollback_cmd(
+    target_version: str = typer.Argument(..., help="Target version ID to rollback to"),
+    confirm: bool = typer.Option(True, help="Confirm rollback"),
+) -> None:
+    """Rollback production model to a previous version."""
+    from .model_deployment import rollback_cmd as rollback_func
+    rollback_func(target_version=target_version, confirm=confirm)
+
+
+@app.command("versions")
+def versions_cmd(
+    details: bool = typer.Option(False, help="Show detailed performance metrics"),
+) -> None:
+    """List all available model versions."""
+    from .model_deployment import versions_cmd as versions_func
+    versions_func(details=details)
+
+
+@app.command("cleanup")
+def cleanup_cmd(
+    keep_production: bool = typer.Option(True, help="Keep production models"),
+    keep_recent: int = typer.Option(5, help="Keep N most recent models"),
+    dry_run: bool = typer.Option(False, help="Show what would be deleted"),
+) -> None:
+    """Clean up old model versions."""
+    from .model_deployment import cleanup_cmd as cleanup_func
+    cleanup_func(keep_production=keep_production, keep_recent=keep_recent, dry_run=dry_run)
+
+
+@app.command("serve")
+def serve_cmd(
+    host: str = typer.Option("0.0.0.0", help="Server host"),
+    port: int = typer.Option(8000, help="Server port"),
+    reload: bool = typer.Option(False, help="Enable auto-reload for development"),
+) -> None:
+    """Start the model serving server."""
+    from .model_deployment import server_cmd as server_func
+    server_func(host=host, port=port, reload=reload)
+
+
+@app.command("compare")
+def compare_cmd(
+    criteria_config: Optional[Path] = typer.Option(None, help="JSON file with comparison criteria"),
+    output_dir: Path = typer.Option(Path("reports/model_comparison"), help="Output directory"),
+    generate_report: bool = typer.Option(True, help="Generate detailed comparison report"),
+) -> None:
+    """Compare and rank models using advanced criteria."""
+    from .model_comparison import compare_models_cmd
+    compare_models_cmd(
+        criteria_config=criteria_config,
+        output_dir=output_dir,
+        generate_report=generate_report
+    )
+
+
+@app.command("compare-interactive")
+def compare_interactive_cmd(
+    criteria_config: Optional[Path] = typer.Option(None, help="JSON file with comparison criteria"),
+) -> None:
+    """Launch interactive model comparison dashboard."""
+    from .model_comparison import interactive_comparison_cmd
+    interactive_comparison_cmd(criteria_config=criteria_config)
+
+
 @app.command()
 def all(
     seed: int = typer.Option(42, help="Pipeline seed"),
@@ -958,7 +1046,7 @@ def all(
         None, help="Parameter profile to apply (e.g. ci)", show_default=False
     ),
     fast: bool = typer.Option(False, "--fast", help="Use the CI profile for a rapid smoke run"),
-    ci: bool = typer.Option(False, "--ci", help="Alias for --fast to align with CI"),
+    ci_mode: bool = typer.Option(False, "--ci", help="Alias for --fast to align with CI"),
 ) -> None:
     """Run the full end-to-end pipeline with distributed computing."""
 
@@ -967,7 +1055,7 @@ def all(
         "all",
         profile=profile,
         fast=fast,
-        ci=ci,
+        ci=ci_mode,
         base={"seed": seed, "distributed": distributed},
     )
     seed = int(overrides["seed"])
