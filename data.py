@@ -21,8 +21,7 @@ RAW_DIR = Path("data/raw")
 PROCESSED_DIR = Path("data/processed")
 
 
-class DataPreparationError(Exception):
-    """Recoverable data prep error with actionable message."""
+from .exceptions import DataPreparationError
 
 
 @dataclass(slots=True)
