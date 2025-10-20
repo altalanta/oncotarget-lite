@@ -523,6 +523,259 @@ make compare
 make deploy VERSION_ID=<recommended_model_id>
 ```
 
+## Data Quality & Lineage Tracking
+
+The system includes comprehensive data quality monitoring and lineage tracking to ensure data integrity and reproducibility throughout the ML pipeline:
+
+### Data Quality Monitoring
+
+**Core Features:**
+- **Comprehensive Validation**: Missing values, duplicates, outliers, data type consistency
+- **Statistical Profiling**: Distribution analysis, correlation detection, summary statistics
+- **Quality Thresholds**: Configurable validation rules with automatic error detection
+- **Drift Detection**: Statistical comparison between datasets for distribution changes
+- **Automated Reporting**: Detailed quality reports with actionable insights
+
+**Quality Metrics:**
+- **Completeness**: Missing value percentages and patterns
+- **Accuracy**: Data type validation and format consistency
+- **Consistency**: Duplicate detection and correlation analysis
+- **Validity**: Outlier detection and statistical distribution checks
+- **Timeliness**: Data freshness and update frequency tracking
+
+### Data Lineage Tracking
+
+**Lineage Features:**
+- **Operation Tracking**: Complete audit trail of all data transformations
+- **Dependency Mapping**: Track input/output relationships between datasets
+- **Parameter Logging**: Record all processing parameters and configurations
+- **Success/Failure Tracking**: Monitor operation outcomes and error states
+- **Temporal Context**: Timestamp all operations with git commit and MLflow run IDs
+
+**Lineage Commands:**
+```bash
+# Validate data quality for any dataset
+python -m oncotarget_lite.cli validate-data data/processed/features.parquet prepared_dataset
+
+# Show data lineage for a specific dataset
+python -m oncotarget_lite.cli lineage --dataset-id prepared_dataset
+
+# Detect data drift between datasets
+python -m oncotarget_lite.cli drift --current prepared_new --reference prepared_old
+
+# Use Makefile targets
+make validate-data DATA_PATH=data/processed/features.parquet DATASET_ID=prepared_data
+make lineage
+make drift CURRENT=prepared_new REFERENCE=prepared_old
+```
+
+### Data Quality Workflow
+
+**Quality Assurance Process:**
+1. **Data Ingestion**: Validate raw data sources for completeness and format
+2. **Processing Validation**: Monitor data transformations for quality preservation
+3. **Drift Monitoring**: Compare processed data against reference baselines
+4. **Quality Reporting**: Generate comprehensive reports for stakeholder review
+5. **Lineage Documentation**: Maintain complete audit trails for compliance
+
+**Example Quality Check:**
+```bash
+# Validate a dataset and generate report
+python -m oncotarget_lite.cli validate-data \
+  --data-path data/processed/features.parquet \
+  --dataset-id production_features \
+  --output-dir reports/data_quality
+
+# Check for drift against baseline
+python -m oncotarget_lite.cli drift \
+  --current production_features \
+  --reference baseline_features \
+  --threshold 0.1
+```
+
+**Quality Report Contents:**
+- **Dataset Overview**: Size, structure, and metadata
+- **Quality Metrics**: Statistical summaries and validation results
+- **Error Detection**: Missing values, duplicates, outliers
+- **Warning Alerts**: Potential data issues requiring attention
+- **Drift Analysis**: Comparison against reference datasets
+- **Lineage History**: Complete operation chain and parameters
+
+### Integration with ML Pipeline
+
+**Automated Quality Monitoring:**
+- **Pipeline Integration**: Quality checks embedded in data preparation
+- **Failure Prevention**: Automatic rejection of poor-quality data
+- **Alerting System**: Integration with monitoring for quality issues
+- **Compliance Support**: Audit trails for regulatory requirements
+
+**Quality Gates:**
+- **Pre-Processing**: Validate raw data before feature engineering
+- **Post-Processing**: Verify processed data meets quality standards
+- **Model Training**: Ensure training data quality for reliable models
+- **Production Deployment**: Validate data before serving predictions
+
+## Advanced ML Experimentation Platform
+
+The system includes a sophisticated experimentation platform for systematic hyperparameter optimization, model comparison, and automated selection:
+
+### Experimentation Features
+
+**Core Capabilities:**
+- **Experiment Management**: Structured experiments with trial tracking and versioning
+- **Multi-Model Optimization**: Simultaneous optimization across multiple model types
+- **Advanced Search Spaces**: Sophisticated parameter spaces with various distribution types
+- **Real-time Monitoring**: Live progress tracking and early stopping capabilities
+- **Automated Reporting**: Comprehensive experiment reports with visualizations
+
+**Experiment Management:**
+- **Structured Experiments**: Named experiments with configurable model types and search spaces
+- **Trial Tracking**: Complete audit trail of all optimization trials and their results
+- **Best Trial Selection**: Automatic identification of optimal parameter combinations
+- **Experiment Persistence**: Save/load experiments for reproducibility and comparison
+
+### Experimentation Commands
+
+**Running Experiments:**
+```bash
+# Run experiment with default configuration
+python -m oncotarget_lite.cli experiment baseline_optimization
+
+# Run experiment with custom configuration
+python -m oncotarget_lite.cli experiment --config-file configs/experiment_config.json
+
+# Run experiment with specific model types and trial count
+python -m oncotarget_lite.cli experiment \
+  --model-types logreg,xgb,lgb \
+  --n-trials 200 \
+  advanced_optimization
+
+# Use Makefile targets
+make experiment NAME=baseline_optimization MODEL_TYPES=logreg,xgb TRIALS=100
+```
+
+**Experiment Management:**
+```bash
+# List all experiments
+python -m oncotarget_lite.cli experiments
+
+# List experiments with detailed information
+python -m oncotarget_lite.cli experiments --details
+
+# Generate detailed report for specific experiment
+python -m oncotarget_lite.cli experiment-report exp_baseline_optimization_1234567890
+
+# Compare multiple experiments
+python -m oncotarget_lite.cli compare-experiments \
+  --experiment-ids exp_1,exp_2,exp_3
+
+# Use Makefile targets
+make experiments
+make experiment-report EXPERIMENT_ID=exp_baseline_optimization_1234567890
+make compare-experiments IDS=exp_1,exp_2,exp_3
+```
+
+### Experiment Configuration
+
+**Search Spaces:**
+The experimentation platform supports sophisticated search spaces:
+
+```json
+{
+  "experiment_name": "comprehensive_model_optimization",
+  "model_types": ["logreg", "xgb", "lgb"],
+  "search_spaces": {
+    "logreg": {
+      "C": {"type": "loguniform", "low": 1e-4, "high": 1e2},
+      "max_iter": {"type": "int", "low": 100, "high": 1000},
+      "class_weight": {"type": "categorical", "choices": ["balanced", null]}
+    },
+    "xgb": {
+      "n_estimators": {"type": "int", "low": 50, "high": 500},
+      "max_depth": {"type": "int", "low": 3, "high": 10},
+      "learning_rate": {"type": "loguniform", "low": 1e-4, "high": 0.3}
+    }
+  }
+}
+```
+
+**Supported Distribution Types:**
+- **Uniform**: Continuous uniform distribution
+- **Loguniform**: Log-uniform distribution for scale parameters
+- **Int**: Integer uniform distribution
+- **Categorical**: Discrete choice from predefined options
+- **Normal**: Normal distribution with mean and standard deviation
+
+### Experiment Workflow
+
+**Complete Experimentation Process:**
+1. **Experiment Setup**: Define model types, search spaces, and optimization criteria
+2. **Trial Execution**: Systematically explore parameter space with intelligent sampling
+3. **Performance Evaluation**: Evaluate each trial with comprehensive metrics
+4. **Best Trial Selection**: Automatically identify optimal parameter combinations
+5. **Experiment Reporting**: Generate detailed reports with visualizations and insights
+
+**Example Experiment Output:**
+```
+🔬 Starting experiment: exp_comprehensive_optimization_1234567890
+   Model types: logreg, xgb, lgb
+   Trials: 100
+
+🎯 Optimizing logreg...
+   Trial 10/100 completed
+   Trial 20/100 completed
+   Trial 30/100 completed
+
+🎯 Optimizing xgb...
+   Trial 10/100 completed
+   Trial 20/100 completed
+
+✅ Experiment completed: exp_comprehensive_optimization_1234567890
+   Total trials: 300
+🏆 Best result:
+   Model: xgb
+   AUROC: 0.8923
+   AP: 0.8341
+   Accuracy: 0.8512
+```
+
+### Integration with Existing Systems
+
+**Seamless Integration:**
+- **Model Registry Integration**: Experiments automatically register models with versioning
+- **Retraining Pipeline**: Experiment results inform automated retraining decisions
+- **MLflow Integration**: All trials logged to MLflow for comprehensive tracking
+- **Quality Monitoring**: Experiments use validated data from quality monitoring
+
+**Experiment Results Usage:**
+```bash
+# 1. Run comprehensive experiment
+make experiment NAME=comprehensive_search TRIALS=200
+
+# 2. Review experiment results
+make experiments
+
+# 3. Generate detailed report
+make experiment-report EXPERIMENT_ID=<experiment_id>
+
+# 4. Deploy best model
+make deploy VERSION_ID=<best_model_id>
+```
+
+### Experiment Visualizations
+
+**Generated Visualizations:**
+- **Trial Progression Plots**: Show improvement over optimization trials
+- **Experiment Comparison Charts**: Compare multiple experiments side-by-side
+- **Parameter Importance Analysis**: Identify most influential hyperparameters
+- **Performance Distribution Plots**: Statistical analysis of trial results
+
+**Interactive Dashboards:**
+- **Experiment Overview**: High-level experiment status and results
+- **Trial Details**: Individual trial performance and parameters
+- **Comparison Views**: Side-by-side experiment analysis
+- **Export Capabilities**: Generate reports for stakeholder review
+
 ## Interpretability Validation
 
 The system includes comprehensive validation for SHAP explanations and model interpretability:
@@ -654,6 +907,13 @@ Key files:
 | `make serve` | **Start model serving server** |
 | `make compare` | **Compare and rank models using advanced criteria** |
 | `make compare-interactive` | **Launch interactive model comparison dashboard** |
+| `make validate-data` | **Validate data quality and generate reports** |
+| `make lineage` | **Show data lineage information** |
+| `make drift` | **Detect data drift between datasets** |
+| `make experiment` | **Run advanced ML experiment with optimization** |
+| `make experiments` | **List all experiments** |
+| `make experiment-report` | **Generate detailed experiment report** |
+| `make compare-experiments` | **Compare multiple experiments** |
 | `make rollback` | **Rollback to previous model version** |
 | `make all` | Full deterministic chain |
 | `make pytest` | Run lightweight unit tests |

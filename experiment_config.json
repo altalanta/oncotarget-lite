@@ -1,0 +1,31 @@
+{
+  "experiment_name": "comprehensive_model_optimization",
+  "model_types": ["logreg", "xgb", "lgb"],
+  "search_spaces": {
+    "logreg": {
+      "C": {"type": "loguniform", "low": 1e-4, "high": 1e2},
+      "max_iter": {"type": "int", "low": 100, "high": 1000},
+      "class_weight": {"type": "categorical", "choices": ["balanced", null]}
+    },
+    "xgb": {
+      "n_estimators": {"type": "int", "low": 50, "high": 500},
+      "max_depth": {"type": "int", "low": 3, "high": 10},
+      "learning_rate": {"type": "loguniform", "low": 1e-4, "high": 0.3},
+      "subsample": {"type": "uniform", "low": 0.5, "high": 1.0},
+      "colsample_bytree": {"type": "uniform", "low": 0.5, "high": 1.0}
+    },
+    "lgb": {
+      "n_estimators": {"type": "int", "low": 50, "high": 500},
+      "max_depth": {"type": "int", "low": 3, "high": 10},
+      "learning_rate": {"type": "loguniform", "low": 1e-4, "high": 0.3},
+      "subsample": {"type": "uniform", "low": 0.5, "high": 1.0},
+      "colsample_bytree": {"type": "uniform", "low": 0.5, "high": 1.0}
+    }
+  },
+  "metrics": ["auroc", "ap", "accuracy", "f1", "brier", "ece"],
+  "optimization_direction": "maximize",
+  "n_trials": 100,
+  "timeout": null,
+  "cv_folds": 5,
+  "random_seed": 42
+}
