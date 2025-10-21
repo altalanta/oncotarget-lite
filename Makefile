@@ -32,7 +32,8 @@ CLI := $(ENV_EXPORT) $(PYTHON_RUN) -m oncotarget_lite.cli $(PROFILE_ARGS)
 .PHONY: setup sync download-data prepare train optimize evaluate explain dashboard cache scorecard snapshot docs docs-targets \
     monitor-report interpretability-validate model-card docs-monitoring docs-interpretability mkdocs-build \
     all clean pytest lint format mypy bandit pre-commit security ablations distributed monitor \
-    validate-interpretability retrain deploy versions cleanup serve rollback compare compare-interactive export-requirements docker.build.cpu docker.build.cuda docker.push.cpu docker.push.cuda
+    validate-interpretability retrain deploy versions cleanup serve rollback compare compare-interactive \
+    validate-data lineage drift experiment experiments experiment-report compare-experiments export-requirements docker.build.cpu docker.build.cuda docker.push.cpu docker.push.cuda
 
 setup:
 ifeq ($(HAS_UV),1)
@@ -207,6 +208,32 @@ compare:
 
 compare-interactive:
 	$(CLI) compare-interactive
+
+validate-data:
+	@echo "Usage: make validate-data DATA_PATH=<path> DATASET_ID=<id>"
+	@echo "Example: make validate-data DATA_PATH=data/processed/features.parquet DATASET_ID=prepared_data"
+
+lineage:
+	$(CLI) lineage
+
+drift:
+	@echo "Usage: make drift CURRENT=<current_id> REFERENCE=<reference_id>"
+	@echo "Example: make drift CURRENT=prepared_data_new REFERENCE=prepared_data_old"
+
+experiment:
+	@echo "Usage: make experiment NAME=<experiment_name> [MODEL_TYPES=<types>] [TRIALS=<n>]"
+	@echo "Example: make experiment NAME=baseline_optimization MODEL_TYPES=logreg,xgb TRIALS=100"
+
+experiments:
+	$(CLI) experiments
+
+experiment-report:
+	@echo "Usage: make experiment-report EXPERIMENT_ID=<id>"
+	@echo "Example: make experiment-report EXPERIMENT_ID=exp_baseline_optimization_1234567890"
+
+compare-experiments:
+	@echo "Usage: make compare-experiments IDS=<id1,id2,id3>"
+	@echo "Example: make compare-experiments IDS=exp_1,exp_2,exp_3"
 
 all: setup prepare train optimize evaluate explain dashboard cache scorecard docs snapshot
 

@@ -1038,6 +1038,101 @@ def compare_interactive_cmd(
     interactive_comparison_cmd(criteria_config=criteria_config)
 
 
+@app.command("validate-data")
+def validate_data_cmd(
+    data_path: Path = typer.Option(..., help="Path to data file (CSV or Parquet)"),
+    dataset_id: str = typer.Option(..., help="Unique identifier for this dataset"),
+    output_dir: Path = typer.Option(Path("reports/data_quality"), help="Output directory for quality report"),
+    generate_report: bool = typer.Option(True, help="Generate detailed quality report"),
+) -> None:
+    """Validate data quality and generate comprehensive report."""
+    from .data_quality import validate_data_cmd
+    validate_data_cmd(
+        data_path=data_path,
+        dataset_id=dataset_id,
+        output_dir=output_dir,
+        generate_report=generate_report
+    )
+
+
+@app.command("lineage")
+def lineage_cmd(
+    dataset_id: Optional[str] = typer.Option(None, help="Specific dataset ID to trace"),
+    operation_type: Optional[str] = typer.Option(None, help="Filter by operation type"),
+    output_dir: Path = typer.Option(Path("reports/data_lineage"), help="Output directory"),
+) -> None:
+    """Show data lineage information."""
+    from .data_quality import lineage_cmd as lineage_func
+    lineage_func(
+        dataset_id=dataset_id,
+        operation_type=operation_type,
+        output_dir=output_dir
+    )
+
+
+@app.command("drift")
+def drift_detection_cmd(
+    current_dataset: str = typer.Option(..., help="Current dataset ID"),
+    reference_dataset: str = typer.Option(..., help="Reference dataset ID for comparison"),
+    threshold: float = typer.Option(0.1, help="Drift detection threshold"),
+) -> None:
+    """Detect data drift between datasets."""
+    from .data_quality import drift_detection_cmd
+    drift_detection_cmd(
+        current_dataset=current_dataset,
+        reference_dataset=reference_dataset,
+        threshold=threshold
+    )
+
+
+@app.command("experiment")
+def experiment_cmd(
+    experiment_name: str = typer.Option(..., help="Name for the experiment"),
+    model_types: List[str] = typer.Option(["logreg", "xgb"], help="Model types to optimize"),
+    n_trials: int = typer.Option(50, help="Number of optimization trials per model"),
+    data_path: Path = typer.Option(Path("data/processed"), help="Path to processed data"),
+    config_file: Optional[Path] = typer.Option(None, help="JSON file with experiment configuration"),
+) -> None:
+    """Run advanced ML experiment with tracking and optimization."""
+    from .experimentation import run_experiment_cmd
+    run_experiment_cmd(
+        experiment_name=experiment_name,
+        model_types=model_types,
+        n_trials=n_trials,
+        data_path=data_path,
+        config_file=config_file
+    )
+
+
+@app.command("experiments")
+def list_experiments_cmd(
+    show_details: bool = typer.Option(False, help="Show detailed experiment information"),
+) -> None:
+    """List all experiments with summary information."""
+    from .experimentation import list_experiments_cmd
+    list_experiments_cmd(show_details=show_details)
+
+
+@app.command("experiment-report")
+def experiment_report_cmd(
+    experiment_id: str = typer.Option(..., help="Experiment ID to generate report for"),
+    output_dir: Path = typer.Option(Path("reports/experiment_reports"), help="Output directory"),
+) -> None:
+    """Generate detailed report for a specific experiment."""
+    from .experimentation import experiment_report_cmd
+    experiment_report_cmd(experiment_id=experiment_id, output_dir=output_dir)
+
+
+@app.command("compare-experiments")
+def compare_experiments_cmd(
+    experiment_ids: List[str] = typer.Option(..., help="Experiment IDs to compare"),
+    output_dir: Path = typer.Option(Path("reports/experiment_comparison"), help="Output directory"),
+) -> None:
+    """Compare multiple experiments and generate comparison report."""
+    from .experimentation import compare_experiments_cmd
+    compare_experiments_cmd(experiment_ids=experiment_ids, output_dir=output_dir)
+
+
 @app.command()
 def all(
     seed: int = typer.Option(42, help="Pipeline seed"),

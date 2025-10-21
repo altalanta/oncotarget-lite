@@ -19,3 +19,4 @@ class PredictionError(Exception):
 class ConfigurationError(Exception):
     """Exception raised when configuration is invalid."""
     pass
+

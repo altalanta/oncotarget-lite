@@ -8,6 +8,7 @@ from typing import Iterable
 
 import numpy as np
 import pandas as pd
+from datetime import datetime
 
 REQUIRED_COLUMNS = ("gene", "median_TPM")
 from sklearn.model_selection import train_test_split
@@ -22,6 +23,7 @@ PROCESSED_DIR = Path("data/processed")
 
 
 from .exceptions import DataPreparationError
+from .data_quality import DataQualityMonitor, DataLineageEntry
 
 
 @dataclass(slots=True)
@@ -270,6 +272,10 @@ def prepare_dataset(
     """Generate the canonical processed artefacts for downstream stages."""
 
     set_seeds(seed)
+
+    # Initialize data quality monitoring
+    quality_monitor = DataQualityMonitor()
+
     features, labels = build_feature_matrix(raw_dir)
 
     if labels.sum() == 0 or labels.sum() == len(labels):
@@ -298,6 +304,39 @@ def prepare_dataset(
             "dataset_hash": dataset_fp,
         },
     )
+
+    # Register prepared data with quality monitoring system
+    dataset_id = f"prepared_{dataset_fp[:8]}"
+    combined_df = features.copy()
+    combined_df['label'] = labels
+
+    try:
+        quality_profile = quality_monitor.register_dataset(
+            df=combined_df,
+            dataset_id=dataset_id,
+            data_source="data_preparation_pipeline",
+            parent_datasets=[str(raw_dir)]  # Raw data as parent
+        )
+
+        # Create lineage entry for data preparation
+        lineage_entry = DataLineageEntry(
+            operation_id=f"prepare_{dataset_fp[:8]}",
+            operation_type="data_preparation",
+            input_datasets=[str(raw_dir)],
+            output_datasets=[dataset_id],
+            parameters={
+                "test_size": test_size,
+                "seed": seed,
+                "raw_dir": str(raw_dir),
+                "processed_dir": str(processed_dir)
+            },
+            timestamp=datetime.now(),
+            success=True
+        )
+        quality_monitor.lineage_tracker.add_entry(lineage_entry)
+
+    except Exception as e:
+        logger.warning(f"Failed to register dataset with quality monitoring: {e}")
 
     return PreparedData(
         features=features,
