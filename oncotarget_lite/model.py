@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -10,24 +9,31 @@ from typing import Any
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import average_precision_score, roc_auc_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-from .data import PROCESSED_DIR, PreparedData
+from .data import PROCESSED_DIR
 from .utils import ensure_dir, load_json, save_dataframe, save_json, set_seeds
 
 MODELS_DIR = Path("models")
 PREDICTIONS_DIR = Path("reports")
 
+# Constants
+DEFAULT_PREDICTION_THRESHOLD = 0.5
+
 
 @dataclass(slots=True)
 class TrainConfig:
+    # Logistic regression specific parameters
     C: float = 1.0
     penalty: str = "l2"
     max_iter: int = 500
     class_weight: str | dict[str, float] | None = "balanced"
+
+    # Common parameters across model types
+    model_type: str = "logreg"  # "logreg", "xgb", "lgb", "mlp", "transformer", "gnn"
+    model_params: dict[str, Any] | None = None
     seed: int = 42
 
 
@@ -63,20 +69,138 @@ def _load_processed(processed_dir: Path) -> tuple[pd.DataFrame, pd.Series, dict[
 
 
 def _build_pipeline(config: TrainConfig) -> Pipeline:
+    """Build pipeline for different model types."""
+
+    # Use model_params if provided, otherwise use legacy parameters for backward compatibility
+    if config.model_params:
+        params = config.model_params.copy()
+    else:
+        # Legacy mode - use individual parameters
+        params = {
+            "C": config.C,
+            "penalty": config.penalty,
+            "max_iter": config.max_iter,
+            "class_weight": config.class_weight,
+            "random_state": config.seed,
+        }
+
+    if config.model_type == "logreg":
+        from sklearn.linear_model import LogisticRegression
+        clf = LogisticRegression(
+            C=params.get("C", config.C),
+            penalty=params.get("penalty", config.penalty),
+            max_iter=params.get("max_iter", config.max_iter),
+            class_weight=params.get("class_weight", config.class_weight),
+            solver="lbfgs",
+            random_state=params.get("random_state", config.seed),
+        )
+
+    elif config.model_type == "xgb":
+        try:
+            from xgboost import XGBClassifier
+            clf = XGBClassifier(**params)
+        except ImportError:
+            from sklearn.ensemble import GradientBoostingClassifier
+            # Map XGBoost params to sklearn params
+            sklearn_params = {
+                "n_estimators": params.get("n_estimators", 100),
+                "max_depth": params.get("max_depth", 6),
+                "learning_rate": params.get("learning_rate", 0.1),
+                "subsample": params.get("subsample", 0.8),
+                "random_state": params.get("random_state", config.seed),
+            }
+            clf = GradientBoostingClassifier(**sklearn_params)
+
+    elif config.model_type == "lgb":
+        try:
+            import lightgbm as lgb
+            # Convert sklearn-style parameters to LightGBM format
+            lgb_params = params.copy()
+            if 'n_estimators' in lgb_params:
+                lgb_params['num_iterations'] = lgb_params.pop('n_estimators')
+            if 'learning_rate' in lgb_params:
+                lgb_params['learning_rate'] = lgb_params['learning_rate']
+            if 'max_depth' in lgb_params:
+                lgb_params['max_depth'] = lgb_params['max_depth']
+            if 'subsample' in lgb_params:
+                lgb_params['bagging_fraction'] = lgb_params.pop('subsample')
+            if 'colsample_bytree' in lgb_params:
+                lgb_params['feature_fraction'] = lgb_params.pop('colsample_bytree')
+
+            # Set default parameters for binary classification
+            lgb_params.setdefault('objective', 'binary')
+            lgb_params.setdefault('metric', 'binary_logloss')
+            lgb_params.setdefault('verbosity', -1)  # Suppress output
+
+            # Create a wrapper that behaves like sklearn estimator
+            class LGBWrapper:
+                def __init__(self, params):
+                    self.params = params
+                    self.model = None
+
+                def fit(self, X, y):
+                    # Convert to LightGBM format
+                    train_data = lgb.Dataset(X, label=y)
+                    self.model = lgb.train(
+                        self.params,
+                        train_data,
+                        valid_sets=[train_data],
+                        callbacks=[lgb.early_stopping(10), lgb.log_evaluation(0)]
+                    )
+                    return self
+
+                def predict_proba(self, X):
+                    if self.model is None:
+                        raise ValueError("Model not trained")
+                    # Get probabilities for positive class
+                    probs = self.model.predict(X)
+                    return np.column_stack([1 - probs, probs])
+
+                def predict(self, X):
+                    if self.model is None:
+                        raise ValueError("Model not trained")
+                    return (self.model.predict(X) > DEFAULT_PREDICTION_THRESHOLD).astype(int)
+
+            clf = LGBWrapper(lgb_params)
+
+        except ImportError:
+            raise ImportError("LightGBM not available. Install with: pip install lightgbm")
+
+    elif config.model_type == "mlp":
+        from sklearn.neural_network import MLPClassifier
+        clf = MLPClassifier(**params)
+
+    elif config.model_type == "transformer":
+        from .trainers.transformer import TransformerTrainer, TrainerConfig
+        trainer_config = TrainerConfig(
+            name="transformer",
+            model_type="transformer",
+            model_params=params,
+            feature_type="all_features",
+            seed=config.seed,
+        )
+        trainer = TransformerTrainer(trainer_config)
+        return trainer.create_pipeline()
+
+    elif config.model_type == "gnn":
+        from .trainers.gnn import GNNTrainer, TrainerConfig
+        trainer_config = TrainerConfig(
+            name="gnn",
+            model_type="gnn",
+            model_params=params,
+            feature_type="all_features",
+            seed=config.seed,
+        )
+        trainer = GNNTrainer(trainer_config)
+        return trainer.create_pipeline()
+
+    else:
+        raise ValueError(f"Unknown model type: {config.model_type}. Available: logreg, xgb, lgb, mlp, transformer, gnn")
+
     return Pipeline(
         steps=[
             ("scaler", StandardScaler()),
-            (
-                "clf",
-                LogisticRegression(
-                    C=config.C,
-                    penalty=config.penalty,
-                    max_iter=config.max_iter,
-                    class_weight=config.class_weight,
-                    solver="lbfgs",
-                    random_state=config.seed,
-                ),
-            ),
+            ("clf", clf),
         ]
     )
 

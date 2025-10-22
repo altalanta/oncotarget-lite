@@ -1,43 +1,22 @@
-"""Custom exceptions for the oncotarget-lite pipeline.
-
-Provides specific exception types for better error handling and debugging
-across the machine learning pipeline.
-"""
+"""Common exceptions for the oncotarget-lite package."""
 
 
-class OncotargetError(Exception):
-    """Base exception for oncotarget-lite pipeline errors."""
-    
-    def __init__(self, message: str, details: dict = None):
-        super().__init__(message)
-        self.details = details or {}
-
-
-class DataValidationError(OncotargetError):
-    """Raised when data validation fails."""
+class DataPreparationError(Exception):
+    """Exception raised when data preparation fails."""
     pass
 
 
-class ModelTrainingError(OncotargetError):
-    """Raised when model training encounters an error."""
+class ModelLoadingError(Exception):
+    """Exception raised when model loading fails."""
     pass
 
 
-class ConfigurationError(OncotargetError):
-    """Raised when configuration is invalid or missing."""
+class PredictionError(Exception):
+    """Exception raised when prediction fails."""
     pass
 
 
-class FeatureEngineeringError(OncotargetError):
-    """Raised when feature engineering fails."""
+class ConfigurationError(Exception):
+    """Exception raised when configuration is invalid."""
     pass
 
-
-class EvaluationError(OncotargetError):
-    """Raised when model evaluation fails."""
-    pass
-
-
-class MLflowError(OncotargetError):
-    """Raised when MLflow operations fail."""
-    pass

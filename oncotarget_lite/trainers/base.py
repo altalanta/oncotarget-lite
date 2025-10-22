@@ -49,6 +49,10 @@ class BaseTrainer(ABC):
         """Filter features based on configuration."""
         if self.config.feature_type == "all_features":
             return features_df
+        elif self.config.feature_type == "advanced_features":
+            # For advanced features, we'll use the features as-is since they were already
+            # computed in build_feature_matrix with use_advanced_features=True
+            return features_df
         elif self.config.feature_type == "clinical_only":
             if self.config.feature_includes:
                 clinical_cols = []
@@ -85,14 +89,14 @@ class BaseTrainer(ABC):
         """Train the model and return results."""
         from sklearn.metrics import roc_auc_score, average_precision_score
         import json
-        
+
         # Load data
         features_df = pd.read_parquet(processed_dir / "features.parquet")
         labels_df = pd.read_parquet(processed_dir / "labels.parquet")
-        
+
         with open(processed_dir / "splits.json") as f:
             splits = json.load(f)
-        
+
         # Filter features
         features_df = self.filter_features(features_df)
         
@@ -104,9 +108,9 @@ class BaseTrainer(ABC):
         test_idx = splits["test"]
         
         X_train = features_df.iloc[train_idx]
-        y_train = labels_df.iloc[train_idx]["is_oncotarget"]
+        y_train = labels_df.iloc[train_idx]["is_cell_surface"]
         X_test = features_df.iloc[test_idx]
-        y_test = labels_df.iloc[test_idx]["is_oncotarget"]
+        y_test = labels_df.iloc[test_idx]["is_cell_surface"]
         
         # Train
         pipeline.fit(X_train, y_train)

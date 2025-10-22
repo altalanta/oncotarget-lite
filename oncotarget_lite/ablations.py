@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import json
+import joblib
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, List, Optional
 
 import yaml
 
+from .distributed import ablation_parallel, configure_distributed
 from .trainers.base import TrainerConfig
-from .trainers import LogisticRegressionTrainer, MLPTrainer, XGBTrainer
+from .trainers import get_trainer
 
 
 def load_ablation_config(config_path: Path) -> TrainerConfig:
@@ -30,14 +32,7 @@ def load_ablation_config(config_path: Path) -> TrainerConfig:
 
 def create_trainer(config: TrainerConfig):
     """Create trainer instance from config."""
-    if config.model_type == "logreg":
-        return LogisticRegressionTrainer(config)
-    elif config.model_type == "mlp":
-        return MLPTrainer(config)
-    elif config.model_type == "xgb":
-        return XGBTrainer(config)
-    else:
-        raise ValueError(f"Unknown model type: {config.model_type}")
+    return get_trainer(config.model_type, config)
 
 
 def discover_ablation_configs(configs_dir: Path = Path("configs/ablations")) -> list[Path]:
@@ -87,7 +82,6 @@ def run_ablation_experiment(
     }
     
     # Save pipeline
-    import joblib
     joblib.dump(result.pipeline, exp_models_dir / "pipeline.pkl")
     
     # Save experiment metadata
@@ -117,8 +111,6 @@ def run_all_ablation_experiments(
     Returns:
         List of experiment results
     """
-    from .distributed import ablation_parallel, configure_distributed
-
     # Configure distributed computing if enabled
     if distributed:
         configure_distributed(backend='joblib', n_jobs=n_jobs or -1, verbose=1)
