@@ -4,20 +4,77 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 from pathlib import Path
-from typing import Optional
+import os
+from typing import Any, Dict, List, Optional
 
 import typer
+import hydra
+from omegaconf import DictConfig, OmegaConf
+
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - optional dependency guards runtime import
+    load_dotenv = None  # type: ignore
 
 from . import __version__
-from .data import PROCESSED_DIR, RAW_DIR, prepare_dataset
-from .eval import evaluate_predictions
-from .explain import SHAP_DIR, generate_shap
-from .model import MODELS_DIR, TrainConfig, train_model
-from .reporting import build_docs_index, generate_scorecard
 from .utils import ensure_dir, git_commit
 
+RAW_DIR = Path("data/raw")
+PROCESSED_DIR = Path("data/processed")
+MODELS_DIR = Path("models")
+REPORTS_DIR = Path("reports")
+SHAP_DIR = REPORTS_DIR / "shap"
+
+
+def _data_module():
+    from . import data as data_module
+
+    return data_module
+
+
+def _model_module():
+    from . import model as model_module
+
+    return model_module
+
+
+def _eval_module():
+    from . import eval as eval_module
+
+    return eval_module
+
+
+def _explain_module():
+    from . import explain as explain_module
+
+    return explain_module
+
+
+def _reporting_module():
+    from . import reporting as reporting_module
+
+    return reporting_module
+
 app = typer.Typer(help="oncotarget-lite lifecycle commands")
+
+if load_dotenv is not None:
+    load_dotenv()
+
+
+@app.callback(invoke_without_command=True)
+@hydra.main(config_path="../conf", config_name="config", version_base=None)
+def _main_callback(
+    ctx: typer.Context,
+    cfg: DictConfig,
+) -> None:
+    """Global CLI entry-point to wire profile shortcuts before subcommands execute."""
+
+    if ctx.invoked_subcommand is None and not ctx.resilient_parsing:
+        typer.echo(ctx.get_help())
+        raise typer.Exit()
+
 
 RUN_CONTEXT = Path("reports/run_context.json")
 
@@ -31,6 +88,15 @@ def _load_run_context() -> Optional[dict[str, str]]:
     if RUN_CONTEXT.exists():
         return json.loads(RUN_CONTEXT.read_text())
     return None
+
+
+# def _with_overrides(command: str, *, profile: str | None = None, fast: bool = False, ci: bool = False, base: Dict[str, Any]) -> Dict[str, Any]:
+#     """Return base parameters updated with profile overrides."""
+
+#     overrides = profile_overrides(command, profile=profile, fast=fast, ci=ci)
+#     merged = base.copy()
+#     merged.update(overrides)
+#     return merged
 
 
 def _start_run(run_name: str | None = None):
@@ -48,12 +114,36 @@ def _start_run(run_name: str | None = None):
 def prepare(
     raw_dir: Path = typer.Option(RAW_DIR, dir_okay=True, help="Directory with synthetic raw CSVs"),
     processed_dir: Path = typer.Option(PROCESSED_DIR, dir_okay=True, help="Output directory"),
-    test_size: float = typer.Option(0.3, min=0.1, max=0.5, help="Test split fraction"),
-    seed: int = typer.Option(42, help="Random seed"),
+    # test_size: float = typer.Option(0.3, min=0.1, max=0.5, help="Test split fraction"), # Removed
+    # seed: int = typer.Option(42, help="Random seed"), # Removed
+    # profile: Optional[str] = typer.Option(
+    #     None, help="Parameter profile to apply (e.g. ci)", show_default=False
+    # ),
+    # fast: bool = typer.Option(False, "--fast", help="Use the CI profile for a rapid smoke run"),
+    # ci_mode: bool = typer.Option(False, "--ci", help="Alias for --fast to align with automation scripts"),
+    cfg: DictConfig = typer.Context.get_default_value("cfg"),  # Access the Hydra config
 ) -> None:
     """Create processed features, labels, and splits."""
 
-    prepared = prepare_dataset(raw_dir=raw_dir, processed_dir=processed_dir, test_size=test_size, seed=seed)
+    # Removed custom profile logic as Hydra will handle this
+    # resolved = _with_overrides(
+    #     "prepare",
+    #     profile=profile,
+    #     fast=fast,
+    #     ci=ci_mode,
+    #     base={"test_size": test_size, "seed": seed},
+    # )
+    # test_size = float(resolved["test_size"])
+    # seed = int(resolved["seed"])
+
+    # Use Hydra config instead
+    test_size = cfg.prepare.test_size
+    seed = cfg.prepare.seed
+
+    data_module = _data_module()
+    prepared = data_module.prepare_dataset(
+        raw_dir=raw_dir, processed_dir=processed_dir, test_size=test_size, seed=seed
+    )
     typer.echo(
         json.dumps(
             {
@@ -72,18 +162,44 @@ def train(
     processed_dir: Path = typer.Option(PROCESSED_DIR, dir_okay=True, help="Processed data directory"),
     models_dir: Path = typer.Option(MODELS_DIR, dir_okay=True, help="Model output directory"),
     reports_dir: Path = typer.Option(Path("reports"), dir_okay=True, help="Report output directory"),
-    C: float = typer.Option(1.0, help="Inverse regularisation strength"),
-    max_iter: int = typer.Option(500, help="Maximum solver iterations"),
-    seed: int = typer.Option(42, help="Random seed"),
+    # model_type: str = typer.Option("logreg", help="Model type: logreg, xgb, lgb, mlp, transformer, gnn"), # Removed
+    # C: float = typer.Option(1.0, help="Inverse regularisation strength (logreg only)"), # Removed
+    # max_iter: int = typer.Option(500, help="Maximum solver iterations (logreg only)"), # Removed
+    # seed: int = typer.Option(42, help="Random seed"), # Removed
     config: Optional[Path] = typer.Option(None, exists=True, help="Ablation config file"),
     all_ablations: bool = typer.Option(False, help="Run all ablation experiments"),
+    # profile: Optional[str] = typer.Option(
+    #     None, help="Parameter profile to apply (e.g. ci)", show_default=False
+    # ),
+    # fast: bool = typer.Option(False, "--fast", help="Use the CI profile for a rapid smoke run"),
+    # ci_mode: bool = typer.Option(False, "--ci", help="Alias for --fast to align with automation scripts"),
+    cfg: DictConfig = typer.Context.get_default_value("cfg"),  # Access the Hydra config
 ) -> None:
-    """Train the logistic regression model or run ablation experiments."""
+    """Train a model or run ablation experiments."""
+
+    # Removed custom profile logic as Hydra will handle this
+    # overrides = _with_overrides(
+    #     "train",
+    #     profile=profile,
+    #     fast=fast,
+    #     ci=ci_mode,
+    #     base={"C": C, "max_iter": max_iter, "seed": seed, "model_type": model_type},
+    # )
+    # C = float(overrides["C"])
+    # max_iter = int(overrides["max_iter"])
+    # seed = int(overrides["seed"])
+    # model_type = str(overrides["model_type"])
+
+    # Use Hydra config instead
+    C = cfg.train.C
+    max_iter = cfg.train.max_iter
+    seed = cfg.train.seed
+    model_type = cfg.train.model_type
 
     # Handle ablation experiments
     if all_ablations or config:
         from .ablations import discover_ablation_configs, run_ablation_experiment
-        
+
         if all_ablations:
             config_paths = discover_ablation_configs()
             if not config_paths:
@@ -91,7 +207,7 @@ def train(
                 raise typer.Exit(1)
         else:
             config_paths = [config]
-        
+
         results = []
         for config_path in config_paths:
             typer.echo(f"Running ablation: {config_path.stem}")
@@ -99,7 +215,7 @@ def train(
                 config_path, processed_dir, models_dir, reports_dir
             )
             results.append(result)
-        
+
         typer.echo(json.dumps({"ablations": len(results), "experiments": [r["experiment"] for r in results]}, indent=2))
         return
 
@@ -109,18 +225,24 @@ def train(
     mlflow.set_tracking_uri(str(Path.cwd() / "mlruns"))
     mlflow.set_experiment("oncotarget-lite")
 
-    cfg = TrainConfig(C=C, max_iter=max_iter, seed=seed)
+    model_module = _model_module()
+    cfg = model_module.TrainConfig(C=C, max_iter=max_iter, model_type=model_type, seed=seed)
     with _start_run(run_name="train") as run:
-        train_result = train_model(processed_dir=processed_dir, models_dir=models_dir, reports_dir=reports_dir, config=cfg)
+        train_result = model_module.train_model(
+            processed_dir=processed_dir,
+            models_dir=models_dir,
+            reports_dir=reports_dir,
+            config=cfg,
+        )
 
         clf = train_result.pipeline.named_steps["clf"]
         mlflow.log_params(
             {
-                "algorithm": "logistic_regression",
+                "algorithm": model_type,
                 "seed": seed,
-                "regularization_C": C,
-                "max_iter": max_iter,
-                "class_weight": "balanced",
+                "regularization_C": C if model_type == "logreg" else None,
+                "max_iter": max_iter if model_type == "logreg" else None,
+                "class_weight": "balanced" if model_type == "logreg" else None,
                 "feature_count": getattr(clf, "n_features_in_", 0),
             }
         )
@@ -145,18 +267,193 @@ def train(
         typer.echo(json.dumps({"mlflow_run_id": run.info.run_id, "tracking_uri": mlflow.get_tracking_uri()}, indent=2))
 
 
+@app.command()
+def dashboard(
+    shap_dir: Path = typer.Option(Path("reports/shap"), dir_okay=True, help="SHAP explanations directory"),
+    output_dir: Path = typer.Option(Path("reports/dashboard"), dir_okay=True, help="Dashboard output directory"),
+    validation_report: Optional[Path] = typer.Option(None, help="Path to validation report for enhanced analysis"),
+    model_comparison: bool = typer.Option(False, help="Create model comparison dashboard"),
+    model_reports: Optional[List[Path]] = typer.Option(None, help="List of validation reports for comparison"),
+    export_static: bool = typer.Option(True, help="Export static images in addition to HTML"),
+) -> None:
+    """Generate advanced interpretability dashboard with interactive visualizations."""
+
+    from .interpretability_dashboard import InterpretabilityDashboard
+
+    dashboard = InterpretabilityDashboard(shap_dir)
+
+    if model_comparison:
+        if not model_reports:
+            typer.echo("Error: --model-reports required for model comparison")
+            raise typer.Exit(1)
+        dashboard.create_model_comparison_dashboard(model_reports, output_dir / "model_comparison.html")
+    else:
+        # Create comprehensive dashboard
+        dashboard.create_comprehensive_dashboard(output_dir / "interpretability_dashboard.html")
+
+        # Export static images if requested
+        if export_static:
+            dashboard.save_static_exports(output_dir / "static")
+
+    typer.echo(f"✅ Interpretability dashboard generated in {output_dir}")
+
+
+@app.command()
+def cache(
+    action: str = typer.Option(..., help="Cache action: info, clear, benchmark"),
+    pattern: str = typer.Option("*", help="File pattern for cache operations"),
+    cache_dir: Path = typer.Option(Path("data/cache"), dir_okay=True, help="Cache directory"),
+) -> None:
+    """Manage data processing cache for improved performance."""
+
+    from .scalable_loader import ScalableDataLoader
+
+    loader = ScalableDataLoader(cache_dir)
+
+    if action == "info":
+        stats = loader.get_cache_stats()
+        typer.echo(f"📊 Cache Statistics:")
+        typer.echo(f"   Total files: {stats['total_files']}")
+        typer.echo(f"   Total size: {stats['total_size_mb']:.2f} MB")
+        typer.echo(f"   File sizes: {list(stats['file_sizes'].keys())[:5]}...")
+
+    elif action == "clear":
+        cleared = loader.clear_cache(pattern)
+        typer.echo(f"🗑️  Cleared {cleared} cache files matching '{pattern}'")
+
+    elif action == "benchmark":
+        # Create a simple benchmark
+        import pandas as pd
+        import numpy as np
+
+        # Create test data
+        test_genes = pd.Series([f"GENE{i:04d}" for i in range(100)])
+
+        start_time = time.time()
+        loader.load_files_parallel({
+            "test": (Path("data/raw/expression.csv"), {"usecols": ["gene", "median_TPM"]})
+        })
+        end_time = time.time()
+
+        typer.echo(f"⏱️  Benchmark completed in {end_time - start_time:.2f}")
+
+    else:
+        typer.echo(f"❌ Unknown action: {action}. Use: info, clear, benchmark")
+
+
+@app.command()
+def optimize(
+    processed_dir: Path = typer.Option(PROCESSED_DIR, dir_okay=True, help="Processed data directory"),
+    models_dir: Path = typer.Option(MODELS_DIR, dir_okay=True, help="Model output directory"),
+    reports_dir: Path = typer.Option(REPORTS_DIR, dir_okay=True, help="Report output directory"),
+    model_type: str = typer.Option("logreg", help="Model type: logreg, xgb, lgb, mlp, transformer, gnn"),
+    n_trials: int = typer.Option(100, min=10, max=1000, help="Number of optimization trials"),
+    timeout: Optional[int] = typer.Option(None, help="Timeout in seconds (optional)"),
+    metric: str = typer.Option("auroc", help="Metric to optimize: auroc, ap"),
+    study_name: str = typer.Option("oncotarget_optimization", help="Optuna study name"),
+    storage_path: str = typer.Option("sqlite:///reports/optuna_study.db", help="Optuna storage path"),
+) -> None:
+    """Run automated hyperparameter optimization using Optuna."""
+
+    from .optimizers import HyperparameterOptimizer
+
+    typer.echo(f"🔍 Running hyperparameter optimization for {model_type} model...")
+
+    # Create optimizer
+    optimizer = HyperparameterOptimizer(
+        study_name=study_name,
+        storage_path=storage_path,
+        n_trials=n_trials,
+        timeout=timeout,
+    )
+
+    # Run optimization
+    study = optimizer.optimize(
+        model_type=model_type,
+        processed_dir=processed_dir,
+        models_dir=models_dir,
+        reports_dir=reports_dir,
+        metric=metric,
+    )
+
+    # Save results
+    summary_path = reports_dir / f"optuna_summary_{model_type}.json"
+    optimizer.save_study_summary(study, summary_path)
+
+    # Display results
+    typer.echo(f"✅ Optimization completed for {model_type}!")
+    typer.echo(f"📊 Best {metric.upper()}: {study.best_value:.4f}")
+    typer.echo(f"🏆 Best parameters: {study.best_params}")
+    typer.echo(f"📁 Results saved to: {summary_path}")
+
+    # Log to MLflow if available
+    try:
+        import mlflow
+        with mlflow.start_run(run_name=f"optimize_{model_type}"):
+            mlflow.log_params(study.best_params)
+            mlflow.log_metric(f"best_{metric}", study.best_value)
+            mlflow.log_artifact(str(summary_path))
+    except ImportError:
+        pass
+
+
 @app.command("eval")
 def eval_cmd(
     reports_dir: Path = typer.Option(Path("reports"), dir_okay=True),
-    n_bootstrap: int = typer.Option(1000, min=100, max=2000),
-    ci: float = typer.Option(0.95, min=0.5, max=0.999),
+    # n_bootstrap: int = typer.Option(1000, min=100, max=2000),
+    confidence_interval: float = typer.Option(0.95, "--ci", min=0.5, max=0.999),
     bins: int = typer.Option(10, min=5, max=20),
     seed: int = typer.Option(42),
     distributed: bool = typer.Option(True, help="Use distributed computing for bootstrap"),
+    # profile: Optional[str] = typer.Option(
+    #     None, help="Parameter profile to apply (e.g. ci)", show_default=False
+    # ),
+    # fast: bool = typer.Option(False, "--fast", help="Use the CI profile for a rapid smoke run"),
+    # ci_profile: bool = typer.Option(
+    #     False,
+    #     "--ci-profile",
+    #     help="Alias for --fast when --ci is already used for confidence intervals",
+    # ),
+    cfg: DictConfig = typer.Context.get_default_value("cfg"),  # Access the Hydra config
 ) -> None:
     """Compute metrics, calibration curves, and bootstrap confidence intervals."""
 
-    result = evaluate_predictions(reports_dir=reports_dir, n_bootstrap=n_bootstrap, ci=ci, bins=bins, seed=seed, distributed=distributed)
+    # Removed custom profile logic as Hydra will handle this
+    # overrides = _with_overrides(
+    #     "eval",
+    #     profile=profile,
+    #     fast=fast,
+    #     ci=ci_profile,
+    #     base={
+    #         "n_bootstrap": n_bootstrap,
+    #         "ci": confidence_interval,
+    #         "bins": bins,
+    #         "seed": seed,
+    #         "distributed": distributed,
+    #     },
+    # )
+    # n_bootstrap = int(overrides["n_bootstrap"])
+    # confidence_interval = float(overrides["ci"])
+    # bins = int(overrides["bins"])
+    # seed = int(overrides["seed"])
+    # distributed = bool(overrides["distributed"])
+
+    # Use Hydra config instead
+    n_bootstrap = cfg.eval.n_bootstrap
+    confidence_interval = cfg.eval.ci
+    bins = cfg.eval.bins
+    seed = cfg.eval.seed
+    distributed = cfg.eval.distributed
+
+    eval_module = _eval_module()
+    result = eval_module.evaluate_predictions(
+        reports_dir=reports_dir,
+        n_bootstrap=n_bootstrap,
+        ci=confidence_interval,
+        bins=bins,
+        seed=seed,
+        distributed=distributed,
+    )
 
     context = _load_run_context()
     if context:
@@ -190,16 +487,48 @@ def eval_cmd(
 @app.command("ablations")
 def ablations_cmd(
     reports_dir: Path = typer.Option(Path("reports"), dir_okay=True, help="Reports directory"),
-    n_bootstrap: int = typer.Option(1000, min=100, max=2000, help="Bootstrap samples"),
-    ci: float = typer.Option(0.95, min=0.5, max=0.999, help="Confidence interval"),
+    confidence_interval: float = typer.Option(0.95, min=0.5, max=0.999, help="Confidence interval"),
     seed: int = typer.Option(42, help="Random seed"),
     distributed: bool = typer.Option(True, help="Use distributed computing for experiments"),
     parallel_jobs: int = typer.Option(-1, help="Number of parallel jobs (-1 for all cores)"),
+    # profile: Optional[str] = typer.Option(
+    #     None, help="Parameter profile to apply (e.g. ci)", show_default=False
+    # ),
+    # fast: bool = typer.Option(False, "--fast", help="Use the CI profile for a rapid smoke run"),
+    # ci_profile: bool = typer.Option(False, "--ci", help="Alias for --fast to align with CI"),
+    cfg: DictConfig = typer.Context.get_default_value("cfg"),  # Access the Hydra config
 ) -> None:
     """Aggregate ablation results and compute bootstrap CIs."""
     from .ablations import run_all_ablation_experiments
     from .data import PROCESSED_DIR, RAW_DIR
     from .model import MODELS_DIR
+
+    # Removed custom profile logic as Hydra will handle this
+    # overrides = _with_overrides(
+    #     "ablations",
+    #     profile=profile,
+    #     fast=fast,
+    #     ci=ci_profile,
+    #     base={
+    #         "n_bootstrap": n_bootstrap,
+    #         "ci": confidence_interval,
+    #         "seed": seed,
+    #         "distributed": distributed,
+    #         "parallel_jobs": parallel_jobs,
+    #     },
+    # )
+    # n_bootstrap = int(overrides["n_bootstrap"])
+    # confidence_interval = float(overrides["ci"])
+    # seed = int(overrides["seed"])
+    # distributed = bool(overrides["distributed"])
+    # parallel_jobs = int(overrides["parallel_jobs"])
+
+    # Use Hydra config instead
+    n_bootstrap = cfg.ablations.n_bootstrap
+    confidence_interval = cfg.ablations.ci
+    seed = cfg.ablations.seed
+    distributed = cfg.ablations.distributed
+    parallel_jobs = cfg.ablations.parallel_jobs
 
     # Run ablation experiments in parallel if distributed is enabled
     if distributed:
@@ -220,7 +549,7 @@ def ablations_cmd(
     result = aggregate_ablation_results(
         reports_dir=reports_dir,
         n_bootstrap=n_bootstrap,
-        ci=ci,
+        ci=confidence_interval,
         seed=seed,
     )
 
@@ -232,14 +561,47 @@ def explain(
     processed_dir: Path = typer.Option(PROCESSED_DIR, dir_okay=True),
     models_dir: Path = typer.Option(MODELS_DIR, dir_okay=True),
     shap_dir: Path = typer.Option(SHAP_DIR, dir_okay=True),
-    seed: int = typer.Option(42),
-    background_size: int = typer.Option(100, min=10, max=500),
-    distributed: bool = typer.Option(True, help="Use distributed computing for SHAP"),
-    max_evals: int = typer.Option(None, help="Maximum SHAP evaluations (for sampling)"),
+    # seed: int = typer.Option(42), # Removed
+    # background_size: int = typer.Option(100, min=10, max=500), # Removed
+    # distributed: bool = typer.Option(True, help="Use distributed computing for SHAP"), # Removed
+    # max_evals: int = typer.Option(None, help="Maximum SHAP evaluations (for sampling)"), # Removed
+    # profile: Optional[str] = typer.Option(
+    #     None, help="Parameter profile to apply (e.g. ci)", show_default=False
+    # ),
+    # fast: bool = typer.Option(False, "--fast", help="Use the CI profile for a rapid smoke run"),
+    # ci_mode: bool = typer.Option(False, "--ci", help="Alias for --fast to align with CI"),
+    cfg: DictConfig = typer.Context.get_default_value("cfg"),  # Access the Hydra config
 ) -> None:
     """Generate SHAP explanations and persist PNG artefacts."""
 
-    artifacts = generate_shap(
+    # Removed custom profile logic as Hydra will handle this
+    # overrides = _with_overrides(
+    #     "explain",
+    #     profile=profile,
+    #     fast=fast,
+    #     ci=ci_mode,
+    #     base={
+    #         "seed": seed,
+    #         "background_size": background_size,
+    #         "distributed": distributed,
+    #         "max_evals": max_evals,
+    #     },
+    # )
+    # seed = int(overrides["seed"])
+    # background_size = int(overrides["background_size"])
+    # distributed = bool(overrides["distributed"])
+    # max_evals_raw = overrides["max_evals"]
+    # max_evals = None if max_evals_raw in (None, "") else int(max_evals_raw)
+
+    # Use Hydra config instead
+    seed = cfg.explain.seed
+    background_size = cfg.explain.background_size
+    distributed = cfg.explain.distributed
+    max_evals_raw = cfg.explain.max_evals
+    max_evals = None if max_evals_raw in (None, "") else int(max_evals_raw)
+
+    explain_module = _explain_module()
+    artifacts = explain_module.generate_shap(
         processed_dir=processed_dir,
         models_dir=models_dir,
         shap_dir=shap_dir,
@@ -269,7 +631,10 @@ def scorecard(
 ) -> None:
     """Build the HTML scorecard linking metrics and SHAP figures."""
 
-    result = generate_scorecard(reports_dir=reports_dir, shap_dir=shap_dir, output_path=output_path)
+    reporting_module = _reporting_module()
+    result = reporting_module.generate_scorecard(
+        reports_dir=reports_dir, shap_dir=shap_dir, output_path=output_path
+    )
 
     context = _load_run_context()
     if context and output_path.exists():
@@ -314,7 +679,10 @@ def docs(
 ) -> None:
     """Generate lightweight documentation landing page."""
 
-    output = build_docs_index(reports_dir=reports_dir, docs_dir=docs_dir, model_card=model_card)
+    reporting_module = _reporting_module()
+    output = reporting_module.build_docs_index(
+        reports_dir=reports_dir, docs_dir=docs_dir, model_card=model_card
+    )
     typer.echo(json.dumps({"docs_index": str(output)}, indent=2))
 
 
@@ -609,14 +977,218 @@ def validate_interpretability_cmd(
         raise typer.Exit(1)
 
 
+@app.command("retrain")
+def retrain_cmd(
+    config: Optional[Path] = typer.Option(None, help="Retraining configuration file"),
+    dry_run: bool = typer.Option(False, help="Show what would be done without executing"),
+    force: bool = typer.Option(False, help="Force retraining even if no triggers are active"),
+    schedule: bool = typer.Option(False, help="Run in scheduled mode (check triggers automatically)"),
+) -> None:
+    """Automated model retraining with intelligent triggers."""
+    from .automated_retraining import retrain_command
+
+    retrain_command(config=config, dry_run=dry_run, force=force, schedule=schedule)
+
+
+@app.command("deploy")
+def deploy_cmd(
+    version_id: str = typer.Argument(..., help="Model version ID to deploy"),
+    confirm: bool = typer.Option(True, help="Confirm deployment"),
+) -> None:
+    """Deploy a model version to production."""
+    from .model_deployment import deploy_cmd as deploy_func
+    deploy_func(version_id=version_id, confirm=confirm)
+
+
+@app.command("rollback")
+def rollback_cmd(
+    target_version: str = typer.Argument(..., help="Target version ID to rollback to"),
+    confirm: bool = typer.Option(True, help="Confirm rollback"),
+) -> None:
+    """Rollback production model to a previous version."""
+    from .model_deployment import rollback_cmd as rollback_func
+    rollback_func(target_version=target_version, confirm=confirm)
+
+
+@app.command("versions")
+def versions_cmd(
+    details: bool = typer.Option(False, help="Show detailed performance metrics"),
+) -> None:
+    """List all available model versions."""
+    from .model_deployment import versions_cmd as versions_func
+    versions_func(details=details)
+
+
+@app.command("cleanup")
+def cleanup_cmd(
+    keep_production: bool = typer.Option(True, help="Keep production models"),
+    keep_recent: int = typer.Option(5, help="Keep N most recent models"),
+    dry_run: bool = typer.Option(False, help="Show what would be deleted"),
+) -> None:
+    """Clean up old model versions."""
+    from .model_deployment import cleanup_cmd as cleanup_func
+    cleanup_func(keep_production=keep_production, keep_recent=keep_recent, dry_run=dry_run)
+
+
+@app.command("serve")
+def serve_cmd(
+    host: str = typer.Option("0.0.0.0", help="Server host"),
+    port: int = typer.Option(8000, help="Server port"),
+    reload: bool = typer.Option(False, help="Enable auto-reload for development"),
+) -> None:
+    """Start the model serving server."""
+    from .model_deployment import server_cmd as server_func
+    server_func(host=host, port=port, reload=reload)
+
+
+@app.command("compare")
+def compare_cmd(
+    criteria_config: Optional[Path] = typer.Option(None, help="JSON file with comparison criteria"),
+    output_dir: Path = typer.Option(Path("reports/model_comparison"), help="Output directory"),
+    generate_report: bool = typer.Option(True, help="Generate detailed comparison report"),
+) -> None:
+    """Compare and rank models using advanced criteria."""
+    from .model_comparison import compare_models_cmd
+    compare_models_cmd(
+        criteria_config=criteria_config,
+        output_dir=output_dir,
+        generate_report=generate_report
+    )
+
+
+@app.command("compare-interactive")
+def compare_interactive_cmd(
+    criteria_config: Optional[Path] = typer.Option(None, help="JSON file with comparison criteria"),
+) -> None:
+    """Launch interactive model comparison dashboard."""
+    from .model_comparison import interactive_comparison_cmd
+    interactive_comparison_cmd(criteria_config=criteria_config)
+
+
+@app.command("validate-data")
+def validate_data_cmd(
+    data_path: Path = typer.Option(..., help="Path to data file (CSV or Parquet)"),
+    dataset_id: str = typer.Option(..., help="Unique identifier for this dataset"),
+    output_dir: Path = typer.Option(Path("reports/data_quality"), help="Output directory for quality report"),
+    generate_report: bool = typer.Option(True, help="Generate detailed quality report"),
+) -> None:
+    """Validate data quality and generate comprehensive report."""
+    from .data_quality import validate_data_cmd
+    validate_data_cmd(
+        data_path=data_path,
+        dataset_id=dataset_id,
+        output_dir=output_dir,
+        generate_report=generate_report
+    )
+
+
+@app.command("lineage")
+def lineage_cmd(
+    dataset_id: Optional[str] = typer.Option(None, help="Specific dataset ID to trace"),
+    operation_type: Optional[str] = typer.Option(None, help="Filter by operation type"),
+    output_dir: Path = typer.Option(Path("reports/data_lineage"), help="Output directory"),
+) -> None:
+    """Show data lineage information."""
+    from .data_quality import lineage_cmd as lineage_func
+    lineage_func(
+        dataset_id=dataset_id,
+        operation_type=operation_type,
+        output_dir=output_dir
+    )
+
+
+@app.command("drift")
+def drift_detection_cmd(
+    current_dataset: str = typer.Option(..., help="Current dataset ID"),
+    reference_dataset: str = typer.Option(..., help="Reference dataset ID for comparison"),
+    threshold: float = typer.Option(0.1, help="Drift detection threshold"),
+) -> None:
+    """Detect data drift between datasets."""
+    from .data_quality import drift_detection_cmd
+    drift_detection_cmd(
+        current_dataset=current_dataset,
+        reference_dataset=reference_dataset,
+        threshold=threshold
+    )
+
+
+@app.command("experiment")
+def experiment_cmd(
+    experiment_name: str = typer.Option(..., help="Name for the experiment"),
+    model_types: List[str] = typer.Option(["logreg", "xgb"], help="Model types to optimize"),
+    n_trials: int = typer.Option(50, help="Number of optimization trials per model"),
+    data_path: Path = typer.Option(Path("data/processed"), help="Path to processed data"),
+    config_file: Optional[Path] = typer.Option(None, help="JSON file with experiment configuration"),
+) -> None:
+    """Run advanced ML experiment with tracking and optimization."""
+    from .experimentation import run_experiment_cmd
+    run_experiment_cmd(
+        experiment_name=experiment_name,
+        model_types=model_types,
+        n_trials=n_trials,
+        data_path=data_path,
+        config_file=config_file
+    )
+
+
+@app.command("experiments")
+def list_experiments_cmd(
+    show_details: bool = typer.Option(False, help="Show detailed experiment information"),
+) -> None:
+    """List all experiments with summary information."""
+    from .experimentation import list_experiments_cmd
+    list_experiments_cmd(show_details=show_details)
+
+
+@app.command("experiment-report")
+def experiment_report_cmd(
+    experiment_id: str = typer.Option(..., help="Experiment ID to generate report for"),
+    output_dir: Path = typer.Option(Path("reports/experiment_reports"), help="Output directory"),
+) -> None:
+    """Generate detailed report for a specific experiment."""
+    from .experimentation import experiment_report_cmd
+    experiment_report_cmd(experiment_id=experiment_id, output_dir=output_dir)
+
+
+@app.command("compare-experiments")
+def compare_experiments_cmd(
+    experiment_ids: List[str] = typer.Option(..., help="Experiment IDs to compare"),
+    output_dir: Path = typer.Option(Path("reports/experiment_comparison"), help="Output directory"),
+) -> None:
+    """Compare multiple experiments and generate comparison report."""
+    from .experimentation import compare_experiments_cmd
+    compare_experiments_cmd(experiment_ids=experiment_ids, output_dir=output_dir)
+
+
 @app.command()
 def all(
-    seed: int = typer.Option(42, help="Pipeline seed"),
-    distributed: bool = typer.Option(True, help="Use distributed computing throughout pipeline"),
+    # seed: int = typer.Option(42, help="Pipeline seed"), # Removed
+    # distributed: bool = typer.Option(True, help="Use distributed computing throughout pipeline"), # Removed
+    # profile: Optional[str] = typer.Option(
+    #     None, help="Parameter profile to apply (e.g. ci)", show_default=False
+    # ),
+    # fast: bool = typer.Option(False, "--fast", help="Use the CI profile for a rapid smoke run"),
+    # ci_mode: bool = typer.Option(False, "--ci", help="Alias for --fast to align with CI"),
+    cfg: DictConfig = typer.Context.get_default_value("cfg"),  # Access the Hydra config
 ) -> None:
     """Run the full end-to-end pipeline with distributed computing."""
 
     # Configure distributed computing for the entire pipeline
+    # Removed custom profile logic as Hydra will handle this
+    # overrides = _with_overrides(
+    #     "all",
+    #     profile=profile,
+    #     fast=fast,
+    #     ci=ci_mode,
+    #     base={"seed": seed, "distributed": distributed},
+    # )
+    # seed = int(overrides["seed"])
+    # distributed = bool(overrides["distributed"])
+
+    # Use Hydra config instead
+    seed = cfg.all.seed
+    distributed = cfg.all.distributed
+
     if distributed:
         distributed_cmd(backend="joblib", n_jobs=-1, verbose=0)
 
