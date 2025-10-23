@@ -177,6 +177,12 @@ dependencies = [
     "optuna==3.5.0",
     "plotly==5.17.0",
     "kaleido==0.2.1",
+    # Performance optimization dependencies
+    "polars[all]>=0.20.0",
+    "modin[all]>=0.24.0",
+    "ray[tune]>=2.9.0",
+    "psutil>=5.9.0",
+    "memory-profiler>=0.61.0",
 ]
 requires-python = ">=3.9"
 
