@@ -15,6 +15,8 @@ from sklearn.preprocessing import StandardScaler
 
 from .data import PROCESSED_DIR
 from .utils import ensure_dir, load_json, save_dataframe, save_json, set_seeds
+from .trainers import get_trainer, preload_common_trainers
+from .performance import performance_monitor, get_performance_monitor
 
 MODELS_DIR = Path("models")
 PREDICTIONS_DIR = Path("reports")
@@ -69,7 +71,7 @@ def _load_processed(processed_dir: Path) -> tuple[pd.DataFrame, pd.Series, dict[
 
 
 def _build_pipeline(config: TrainConfig) -> Pipeline:
-    """Build pipeline for different model types."""
+    """Build pipeline for different model types using lazy loading."""
 
     # Use model_params if provided, otherwise use legacy parameters for backward compatibility
     if config.model_params:
@@ -84,7 +86,23 @@ def _build_pipeline(config: TrainConfig) -> Pipeline:
             "random_state": config.seed,
         }
 
-    if config.model_type == "logreg":
+    # Use lazy loading for trainer-based models (transformer, gnn, and modern models)
+    if config.model_type in ["transformer", "gnn"]:
+        from .trainers.base import TrainerConfig
+        trainer_config = TrainerConfig(
+            name=config.model_type,
+            model_type=config.model_type,
+            model_params=params,
+            feature_type="all_features",
+            seed=config.seed,
+        )
+
+        with performance_monitor(f"build_pipeline_{config.model_type}"):
+            trainer = get_trainer(config.model_type, trainer_config)
+            return trainer.create_pipeline()
+
+    # Use sklearn-based models with lazy loading
+    elif config.model_type == "logreg":
         from sklearn.linear_model import LogisticRegression
         clf = LogisticRegression(
             C=params.get("C", config.C),
@@ -100,8 +118,8 @@ def _build_pipeline(config: TrainConfig) -> Pipeline:
             from xgboost import XGBClassifier
             clf = XGBClassifier(**params)
         except ImportError:
+            # Fallback to sklearn implementation
             from sklearn.ensemble import GradientBoostingClassifier
-            # Map XGBoost params to sklearn params
             sklearn_params = {
                 "n_estimators": params.get("n_estimators", 100),
                 "max_depth": params.get("max_depth", 6),
@@ -169,30 +187,6 @@ def _build_pipeline(config: TrainConfig) -> Pipeline:
     elif config.model_type == "mlp":
         from sklearn.neural_network import MLPClassifier
         clf = MLPClassifier(**params)
-
-    elif config.model_type == "transformer":
-        from .trainers.transformer import TransformerTrainer, TrainerConfig
-        trainer_config = TrainerConfig(
-            name="transformer",
-            model_type="transformer",
-            model_params=params,
-            feature_type="all_features",
-            seed=config.seed,
-        )
-        trainer = TransformerTrainer(trainer_config)
-        return trainer.create_pipeline()
-
-    elif config.model_type == "gnn":
-        from .trainers.gnn import GNNTrainer, TrainerConfig
-        trainer_config = TrainerConfig(
-            name="gnn",
-            model_type="gnn",
-            model_params=params,
-            feature_type="all_features",
-            seed=config.seed,
-        )
-        trainer = GNNTrainer(trainer_config)
-        return trainer.create_pipeline()
 
     else:
         raise ValueError(f"Unknown model type: {config.model_type}. Available: logreg, xgb, lgb, mlp, transformer, gnn")
