@@ -10,6 +10,8 @@ import os
 from typing import Any, Dict, List, Optional
 
 import typer
+import hydra
+from omegaconf import DictConfig, OmegaConf
 
 try:
     from dotenv import load_dotenv
@@ -17,7 +19,6 @@ except ImportError:  # pragma: no cover - optional dependency guards runtime imp
     load_dotenv = None  # type: ignore
 
 from . import __version__
-from .config import CI_PROFILE_NAME, PROFILE_ENV_VAR, profile_overrides
 from .utils import ensure_dir, git_commit
 
 RAW_DIR = Path("data/raw")
@@ -63,31 +64,17 @@ if load_dotenv is not None:
 
 
 @app.callback(invoke_without_command=True)
+@hydra.main(config_path="../conf", config_name="config", version_base=None)
 def _main_callback(
     ctx: typer.Context,
-    profile: Optional[str] = typer.Option(
-        None,
-        "--profile",
-        help="Parameter profile to apply (e.g. ci)",
-        show_default=False,
-    ),
-    fast: bool = typer.Option(False, "--fast", help="Use the CI profile for a rapid smoke run"),
-    ci_mode: bool = typer.Option(
-        False,
-        "--ci",
-        help="Alias for --fast to align with CI and automation scripts",
-    ),
+    cfg: DictConfig,
 ) -> None:
     """Global CLI entry-point to wire profile shortcuts before subcommands execute."""
-
-    if fast or ci_mode:
-        os.environ[PROFILE_ENV_VAR] = CI_PROFILE_NAME
-    elif profile:
-        os.environ[PROFILE_ENV_VAR] = profile
 
     if ctx.invoked_subcommand is None and not ctx.resilient_parsing:
         typer.echo(ctx.get_help())
         raise typer.Exit()
+
 
 RUN_CONTEXT = Path("reports/run_context.json")
 
@@ -103,13 +90,13 @@ def _load_run_context() -> Optional[dict[str, str]]:
     return None
 
 
-def _with_overrides(command: str, *, profile: str | None = None, fast: bool = False, ci: bool = False, base: Dict[str, Any]) -> Dict[str, Any]:
-    """Return base parameters updated with profile overrides."""
+# def _with_overrides(command: str, *, profile: str | None = None, fast: bool = False, ci: bool = False, base: Dict[str, Any]) -> Dict[str, Any]:
+#     """Return base parameters updated with profile overrides."""
 
-    overrides = profile_overrides(command, profile=profile, fast=fast, ci=ci)
-    merged = base.copy()
-    merged.update(overrides)
-    return merged
+#     overrides = profile_overrides(command, profile=profile, fast=fast, ci=ci)
+#     merged = base.copy()
+#     merged.update(overrides)
+#     return merged
 
 
 def _start_run(run_name: str | None = None):
@@ -127,29 +114,40 @@ def _start_run(run_name: str | None = None):
 def prepare(
     raw_dir: Path = typer.Option(RAW_DIR, dir_okay=True, help="Directory with synthetic raw CSVs"),
     processed_dir: Path = typer.Option(PROCESSED_DIR, dir_okay=True, help="Output directory"),
-    test_size: float = typer.Option(0.3, min=0.1, max=0.5, help="Test split fraction"),
-    seed: int = typer.Option(42, help="Random seed"),
-    profile: Optional[str] = typer.Option(
-        None, help="Parameter profile to apply (e.g. ci)", show_default=False
-    ),
-    fast: bool = typer.Option(False, "--fast", help="Use the CI profile for a rapid smoke run"),
-    ci_mode: bool = typer.Option(False, "--ci", help="Alias for --fast to align with automation scripts"),
+    optimize: bool = typer.Option(True, "--optimize/--no-optimize", help="Use optimized data processing"),
+    # test_size: float = typer.Option(0.3, min=0.1, max=0.5, help="Test split fraction"), # Removed
+    # seed: int = typer.Option(42, help="Random seed"), # Removed
+    # profile: Optional[str] = typer.Option(
+    #     None, help="Parameter profile to apply (e.g. ci)", show_default=False
+    # ),
+    # fast: bool = typer.Option(False, "--fast", help="Use the CI profile for a rapid smoke run"),
+    # ci_mode: bool = typer.Option(False, "--ci", help="Alias for --fast to align with automation scripts"),
+    cfg: DictConfig = typer.Context.get_default_value("cfg"),  # Access the Hydra config
 ) -> None:
-    """Create processed features, labels, and splits."""
+    """Create processed features, labels, and splits with optional performance optimization."""
 
-    resolved = _with_overrides(
-        "prepare",
-        profile=profile,
-        fast=fast,
-        ci=ci_mode,
-        base={"test_size": test_size, "seed": seed},
-    )
-    test_size = float(resolved["test_size"])
-    seed = int(resolved["seed"])
+    # Removed custom profile logic as Hydra will handle this
+    # resolved = _with_overrides(
+    #     "prepare",
+    #     profile=profile,
+    #     fast=fast,
+    #     ci=ci_mode,
+    #     base={"test_size": test_size, "seed": seed},
+    # )
+    # test_size = float(resolved["test_size"])
+    # seed = int(resolved["seed"])
+
+    # Use Hydra config instead
+    test_size = cfg.prepare.test_size
+    seed = cfg.prepare.seed
 
     data_module = _data_module()
     prepared = data_module.prepare_dataset(
-        raw_dir=raw_dir, processed_dir=processed_dir, test_size=test_size, seed=seed
+        raw_dir=raw_dir,
+        processed_dir=processed_dir,
+        test_size=test_size,
+        seed=seed,
+        use_optimized_processing=optimize
     )
     typer.echo(
         json.dumps(
@@ -169,36 +167,44 @@ def train(
     processed_dir: Path = typer.Option(PROCESSED_DIR, dir_okay=True, help="Processed data directory"),
     models_dir: Path = typer.Option(MODELS_DIR, dir_okay=True, help="Model output directory"),
     reports_dir: Path = typer.Option(Path("reports"), dir_okay=True, help="Report output directory"),
-    model_type: str = typer.Option("logreg", help="Model type: logreg, xgb, lgb, mlp, transformer, gnn"),
-    C: float = typer.Option(1.0, help="Inverse regularisation strength (logreg only)"),
-    max_iter: int = typer.Option(500, help="Maximum solver iterations (logreg only)"),
-    seed: int = typer.Option(42, help="Random seed"),
+    # model_type: str = typer.Option("logreg", help="Model type: logreg, xgb, lgb, mlp, transformer, gnn"), # Removed
+    # C: float = typer.Option(1.0, help="Inverse regularisation strength (logreg only)"), # Removed
+    # max_iter: int = typer.Option(500, help="Maximum solver iterations (logreg only)"), # Removed
+    # seed: int = typer.Option(42, help="Random seed"), # Removed
     config: Optional[Path] = typer.Option(None, exists=True, help="Ablation config file"),
     all_ablations: bool = typer.Option(False, help="Run all ablation experiments"),
-    profile: Optional[str] = typer.Option(
-        None, help="Parameter profile to apply (e.g. ci)", show_default=False
-    ),
-    fast: bool = typer.Option(False, "--fast", help="Use the CI profile for a rapid smoke run"),
-    ci_mode: bool = typer.Option(False, "--ci", help="Alias for --fast to align with automation scripts"),
+    # profile: Optional[str] = typer.Option(
+    #     None, help="Parameter profile to apply (e.g. ci)", show_default=False
+    # ),
+    # fast: bool = typer.Option(False, "--fast", help="Use the CI profile for a rapid smoke run"),
+    # ci_mode: bool = typer.Option(False, "--ci", help="Alias for --fast to align with automation scripts"),
+    cfg: DictConfig = typer.Context.get_default_value("cfg"),  # Access the Hydra config
 ) -> None:
     """Train a model or run ablation experiments."""
 
-    overrides = _with_overrides(
-        "train",
-        profile=profile,
-        fast=fast,
-        ci=ci_mode,
-        base={"C": C, "max_iter": max_iter, "seed": seed, "model_type": model_type},
-    )
-    C = float(overrides["C"])
-    max_iter = int(overrides["max_iter"])
-    seed = int(overrides["seed"])
-    model_type = str(overrides["model_type"])
+    # Removed custom profile logic as Hydra will handle this
+    # overrides = _with_overrides(
+    #     "train",
+    #     profile=profile,
+    #     fast=fast,
+    #     ci=ci_mode,
+    #     base={"C": C, "max_iter": max_iter, "seed": seed, "model_type": model_type},
+    # )
+    # C = float(overrides["C"])
+    # max_iter = int(overrides["max_iter"])
+    # seed = int(overrides["seed"])
+    # model_type = str(overrides["model_type"])
+
+    # Use Hydra config instead
+    C = cfg.train.C
+    max_iter = cfg.train.max_iter
+    seed = cfg.train.seed
+    model_type = cfg.train.model_type
 
     # Handle ablation experiments
     if all_ablations or config:
         from .ablations import discover_ablation_configs, run_ablation_experiment
-        
+
         if all_ablations:
             config_paths = discover_ablation_configs()
             if not config_paths:
@@ -206,7 +212,7 @@ def train(
                 raise typer.Exit(1)
         else:
             config_paths = [config]
-        
+
         results = []
         for config_path in config_paths:
             typer.echo(f"Running ablation: {config_path.stem}")
@@ -214,7 +220,7 @@ def train(
                 config_path, processed_dir, models_dir, reports_dir
             )
             results.append(result)
-        
+
         typer.echo(json.dumps({"ablations": len(results), "experiments": [r["experiment"] for r in results]}, indent=2))
         return
 
@@ -341,6 +347,66 @@ def cache(
 
 
 @app.command()
+def performance(
+    action: str = typer.Argument("stats", help="Action: stats, optimize, preload"),
+    model_type: Optional[str] = typer.Option(None, help="Model type to preload (for preload action)"),
+) -> None:
+    """Performance monitoring and optimization commands."""
+    from .performance import get_performance_monitor, preload_common_trainers
+    from .trainers import preload_trainer
+
+    if action == "stats":
+        monitor = get_performance_monitor()
+        suggestions = monitor.get_optimization_suggestions()
+
+        typer.echo("📊 Performance Statistics:")
+        typer.echo(f"   Operations tracked: {len(monitor.metrics_history)}")
+        typer.echo(f"   Memory threshold: {monitor.memory_threshold_mb / 1024:.1f}GB")
+
+        if suggestions:
+            typer.echo("\n💡 Optimization Suggestions:")
+            for suggestion in suggestions:
+                typer.echo(f"   • {suggestion}")
+        else:
+            typer.echo("\n✅ No optimization suggestions - performance looks good!")
+
+        # Show recent metrics if available
+        if monitor.metrics_history:
+            recent = monitor.metrics_history[-5:]  # Last 5 operations
+            typer.echo("\n📈 Recent Operations:")
+            for metric in recent:
+                typer.echo(f"   {metric.operation_name}: {metric.duration_seconds:.2f}s, "
+                          f"{metric.memory_peak_mb:.1f}MB")
+
+    elif action == "preload":
+        if model_type:
+            # Preload specific trainer
+            success = preload_trainer(model_type)
+            if success:
+                typer.echo(f"✅ Preloaded {model_type} trainer successfully")
+            else:
+                typer.echo(f"❌ Failed to preload {model_type} trainer (dependencies missing)")
+        else:
+            # Preload common trainers
+            typer.echo("🚀 Preloading common trainers...")
+            results = preload_common_trainers()
+            for trainer_type, success in results.items():
+                status = "✅" if success else "❌"
+                typer.echo(f"   {status} {trainer_type}")
+
+    elif action == "optimize":
+        typer.echo("🔧 Performance optimization tips:")
+        typer.echo("   • Use --optimize flag with prepare command for faster data loading")
+        typer.echo("   • Set ONCOTARGET_LITE_FAST=1 for CI mode (faster but less accurate)")
+        typer.echo("   • Use Polars backend: install polars[all] for 10x faster DataFrame operations")
+        typer.echo("   • Enable distributed computing: use --distributed flag")
+        typer.echo("   • Preload trainers: run 'oncotarget-lite performance preload'")
+
+    else:
+        typer.echo(f"❌ Unknown action: {action}. Use: stats, optimize, preload")
+
+
+@app.command()
 def optimize(
     processed_dir: Path = typer.Option(PROCESSED_DIR, dir_okay=True, help="Processed data directory"),
     models_dir: Path = typer.Option(MODELS_DIR, dir_okay=True, help="Model output directory"),
@@ -399,41 +465,50 @@ def optimize(
 @app.command("eval")
 def eval_cmd(
     reports_dir: Path = typer.Option(Path("reports"), dir_okay=True),
-    n_bootstrap: int = typer.Option(1000, min=100, max=2000),
+    # n_bootstrap: int = typer.Option(1000, min=100, max=2000),
     confidence_interval: float = typer.Option(0.95, "--ci", min=0.5, max=0.999),
     bins: int = typer.Option(10, min=5, max=20),
     seed: int = typer.Option(42),
     distributed: bool = typer.Option(True, help="Use distributed computing for bootstrap"),
-    profile: Optional[str] = typer.Option(
-        None, help="Parameter profile to apply (e.g. ci)", show_default=False
-    ),
-    fast: bool = typer.Option(False, "--fast", help="Use the CI profile for a rapid smoke run"),
-    ci_profile: bool = typer.Option(
-        False,
-        "--ci-profile",
-        help="Alias for --fast when --ci is already used for confidence intervals",
-    ),
+    # profile: Optional[str] = typer.Option(
+    #     None, help="Parameter profile to apply (e.g. ci)", show_default=False
+    # ),
+    # fast: bool = typer.Option(False, "--fast", help="Use the CI profile for a rapid smoke run"),
+    # ci_profile: bool = typer.Option(
+    #     False,
+    #     "--ci-profile",
+    #     help="Alias for --fast when --ci is already used for confidence intervals",
+    # ),
+    cfg: DictConfig = typer.Context.get_default_value("cfg"),  # Access the Hydra config
 ) -> None:
     """Compute metrics, calibration curves, and bootstrap confidence intervals."""
 
-    overrides = _with_overrides(
-        "eval",
-        profile=profile,
-        fast=fast,
-        ci=ci_profile,
-        base={
-            "n_bootstrap": n_bootstrap,
-            "ci": confidence_interval,
-            "bins": bins,
-            "seed": seed,
-            "distributed": distributed,
-        },
-    )
-    n_bootstrap = int(overrides["n_bootstrap"])
-    confidence_interval = float(overrides["ci"])
-    bins = int(overrides["bins"])
-    seed = int(overrides["seed"])
-    distributed = bool(overrides["distributed"])
+    # Removed custom profile logic as Hydra will handle this
+    # overrides = _with_overrides(
+    #     "eval",
+    #     profile=profile,
+    #     fast=fast,
+    #     ci=ci_profile,
+    #     base={
+    #         "n_bootstrap": n_bootstrap,
+    #         "ci": confidence_interval,
+    #         "bins": bins,
+    #         "seed": seed,
+    #         "distributed": distributed,
+    #     },
+    # )
+    # n_bootstrap = int(overrides["n_bootstrap"])
+    # confidence_interval = float(overrides["ci"])
+    # bins = int(overrides["bins"])
+    # seed = int(overrides["seed"])
+    # distributed = bool(overrides["distributed"])
+
+    # Use Hydra config instead
+    n_bootstrap = cfg.eval.n_bootstrap
+    confidence_interval = cfg.eval.ci
+    bins = cfg.eval.bins
+    seed = cfg.eval.seed
+    distributed = cfg.eval.distributed
 
     eval_module = _eval_module()
     result = eval_module.evaluate_predictions(
@@ -477,40 +552,48 @@ def eval_cmd(
 @app.command("ablations")
 def ablations_cmd(
     reports_dir: Path = typer.Option(Path("reports"), dir_okay=True, help="Reports directory"),
-    n_bootstrap: int = typer.Option(1000, min=100, max=2000, help="Bootstrap samples"),
     confidence_interval: float = typer.Option(0.95, min=0.5, max=0.999, help="Confidence interval"),
     seed: int = typer.Option(42, help="Random seed"),
     distributed: bool = typer.Option(True, help="Use distributed computing for experiments"),
     parallel_jobs: int = typer.Option(-1, help="Number of parallel jobs (-1 for all cores)"),
-    profile: Optional[str] = typer.Option(
-        None, help="Parameter profile to apply (e.g. ci)", show_default=False
-    ),
-    fast: bool = typer.Option(False, "--fast", help="Use the CI profile for a rapid smoke run"),
-    ci_profile: bool = typer.Option(False, "--ci", help="Alias for --fast to align with CI"),
+    # profile: Optional[str] = typer.Option(
+    #     None, help="Parameter profile to apply (e.g. ci)", show_default=False
+    # ),
+    # fast: bool = typer.Option(False, "--fast", help="Use the CI profile for a rapid smoke run"),
+    # ci_profile: bool = typer.Option(False, "--ci", help="Alias for --fast to align with CI"),
+    cfg: DictConfig = typer.Context.get_default_value("cfg"),  # Access the Hydra config
 ) -> None:
     """Aggregate ablation results and compute bootstrap CIs."""
     from .ablations import run_all_ablation_experiments
     from .data import PROCESSED_DIR, RAW_DIR
     from .model import MODELS_DIR
 
-    overrides = _with_overrides(
-        "ablations",
-        profile=profile,
-        fast=fast,
-        ci=ci_profile,
-        base={
-            "n_bootstrap": n_bootstrap,
-            "ci": confidence_interval,
-            "seed": seed,
-            "distributed": distributed,
-            "parallel_jobs": parallel_jobs,
-        },
-    )
-    n_bootstrap = int(overrides["n_bootstrap"])
-    confidence_interval = float(overrides["ci"])
-    seed = int(overrides["seed"])
-    distributed = bool(overrides["distributed"])
-    parallel_jobs = int(overrides["parallel_jobs"])
+    # Removed custom profile logic as Hydra will handle this
+    # overrides = _with_overrides(
+    #     "ablations",
+    #     profile=profile,
+    #     fast=fast,
+    #     ci=ci_profile,
+    #     base={
+    #         "n_bootstrap": n_bootstrap,
+    #         "ci": confidence_interval,
+    #         "seed": seed,
+    #         "distributed": distributed,
+    #         "parallel_jobs": parallel_jobs,
+    #     },
+    # )
+    # n_bootstrap = int(overrides["n_bootstrap"])
+    # confidence_interval = float(overrides["ci"])
+    # seed = int(overrides["seed"])
+    # distributed = bool(overrides["distributed"])
+    # parallel_jobs = int(overrides["parallel_jobs"])
+
+    # Use Hydra config instead
+    n_bootstrap = cfg.ablations.n_bootstrap
+    confidence_interval = cfg.ablations.ci
+    seed = cfg.ablations.seed
+    distributed = cfg.ablations.distributed
+    parallel_jobs = cfg.ablations.parallel_jobs
 
     # Run ablation experiments in parallel if distributed is enabled
     if distributed:
@@ -543,34 +626,43 @@ def explain(
     processed_dir: Path = typer.Option(PROCESSED_DIR, dir_okay=True),
     models_dir: Path = typer.Option(MODELS_DIR, dir_okay=True),
     shap_dir: Path = typer.Option(SHAP_DIR, dir_okay=True),
-    seed: int = typer.Option(42),
-    background_size: int = typer.Option(100, min=10, max=500),
-    distributed: bool = typer.Option(True, help="Use distributed computing for SHAP"),
-    max_evals: int = typer.Option(None, help="Maximum SHAP evaluations (for sampling)"),
-    profile: Optional[str] = typer.Option(
-        None, help="Parameter profile to apply (e.g. ci)", show_default=False
-    ),
-    fast: bool = typer.Option(False, "--fast", help="Use the CI profile for a rapid smoke run"),
-    ci_mode: bool = typer.Option(False, "--ci", help="Alias for --fast to align with CI"),
+    # seed: int = typer.Option(42), # Removed
+    # background_size: int = typer.Option(100, min=10, max=500), # Removed
+    # distributed: bool = typer.Option(True, help="Use distributed computing for SHAP"), # Removed
+    # max_evals: int = typer.Option(None, help="Maximum SHAP evaluations (for sampling)"), # Removed
+    # profile: Optional[str] = typer.Option(
+    #     None, help="Parameter profile to apply (e.g. ci)", show_default=False
+    # ),
+    # fast: bool = typer.Option(False, "--fast", help="Use the CI profile for a rapid smoke run"),
+    # ci_mode: bool = typer.Option(False, "--ci", help="Alias for --fast to align with CI"),
+    cfg: DictConfig = typer.Context.get_default_value("cfg"),  # Access the Hydra config
 ) -> None:
     """Generate SHAP explanations and persist PNG artefacts."""
 
-    overrides = _with_overrides(
-        "explain",
-        profile=profile,
-        fast=fast,
-        ci=ci_mode,
-        base={
-            "seed": seed,
-            "background_size": background_size,
-            "distributed": distributed,
-            "max_evals": max_evals,
-        },
-    )
-    seed = int(overrides["seed"])
-    background_size = int(overrides["background_size"])
-    distributed = bool(overrides["distributed"])
-    max_evals_raw = overrides["max_evals"]
+    # Removed custom profile logic as Hydra will handle this
+    # overrides = _with_overrides(
+    #     "explain",
+    #     profile=profile,
+    #     fast=fast,
+    #     ci=ci_mode,
+    #     base={
+    #         "seed": seed,
+    #         "background_size": background_size,
+    #         "distributed": distributed,
+    #         "max_evals": max_evals,
+    #     },
+    # )
+    # seed = int(overrides["seed"])
+    # background_size = int(overrides["background_size"])
+    # distributed = bool(overrides["distributed"])
+    # max_evals_raw = overrides["max_evals"]
+    # max_evals = None if max_evals_raw in (None, "") else int(max_evals_raw)
+
+    # Use Hydra config instead
+    seed = cfg.explain.seed
+    background_size = cfg.explain.background_size
+    distributed = cfg.explain.distributed
+    max_evals_raw = cfg.explain.max_evals
     max_evals = None if max_evals_raw in (None, "") else int(max_evals_raw)
 
     explain_module = _explain_module()
@@ -1135,26 +1227,32 @@ def compare_experiments_cmd(
 
 @app.command()
 def all(
-    seed: int = typer.Option(42, help="Pipeline seed"),
-    distributed: bool = typer.Option(True, help="Use distributed computing throughout pipeline"),
-    profile: Optional[str] = typer.Option(
-        None, help="Parameter profile to apply (e.g. ci)", show_default=False
-    ),
-    fast: bool = typer.Option(False, "--fast", help="Use the CI profile for a rapid smoke run"),
-    ci_mode: bool = typer.Option(False, "--ci", help="Alias for --fast to align with CI"),
+    # seed: int = typer.Option(42, help="Pipeline seed"), # Removed
+    # distributed: bool = typer.Option(True, help="Use distributed computing throughout pipeline"), # Removed
+    # profile: Optional[str] = typer.Option(
+    #     None, help="Parameter profile to apply (e.g. ci)", show_default=False
+    # ),
+    # fast: bool = typer.Option(False, "--fast", help="Use the CI profile for a rapid smoke run"),
+    # ci_mode: bool = typer.Option(False, "--ci", help="Alias for --fast to align with CI"),
+    cfg: DictConfig = typer.Context.get_default_value("cfg"),  # Access the Hydra config
 ) -> None:
     """Run the full end-to-end pipeline with distributed computing."""
 
     # Configure distributed computing for the entire pipeline
-    overrides = _with_overrides(
-        "all",
-        profile=profile,
-        fast=fast,
-        ci=ci_mode,
-        base={"seed": seed, "distributed": distributed},
-    )
-    seed = int(overrides["seed"])
-    distributed = bool(overrides["distributed"])
+    # Removed custom profile logic as Hydra will handle this
+    # overrides = _with_overrides(
+    #     "all",
+    #     profile=profile,
+    #     fast=fast,
+    #     ci=ci_mode,
+    #     base={"seed": seed, "distributed": distributed},
+    # )
+    # seed = int(overrides["seed"])
+    # distributed = bool(overrides["distributed"])
+
+    # Use Hydra config instead
+    seed = cfg.all.seed
+    distributed = cfg.all.distributed
 
     if distributed:
         distributed_cmd(backend="joblib", n_jobs=-1, verbose=0)
