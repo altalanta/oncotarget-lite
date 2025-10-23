@@ -9,9 +9,15 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
+from pydantic import ValidationError
 
 from ..data import build_feature_matrix
+from ..exceptions import PredictionError
+from ..resilience import get_resilience_manager
+from ..schemas import APIPredictionRequest, APIPredictionResponse
 from .model_loader import ModelLoader
+
+resilience_manager = get_resilience_manager()
 
 
 @dataclass
@@ -51,32 +57,36 @@ class PredictionService:
         self.model_loader = ModelLoader(models_dir)
         self.prediction_cache: Dict[str, Any] = {}
 
-    def predict_single(self, request: PredictionRequest) -> PredictionResult:
-        """Make a single prediction."""
+    @resilience_manager.resilient_function(retries=3, circuit_breaker_name="prediction")
+    def predict_single(self, request: APIPredictionRequest) -> APIPredictionResponse:
+        """Make a single prediction with validation and resilience."""
+        try:
+            # Load model
+            model_version = request.model_version or "latest"
+            model = self.model_loader.load_model(model_version)
 
-        # Load model
-        model = self.model_loader.load_model(request.model_name)
+            # Prepare features
+            feature_df = pd.DataFrame([request.features])
 
-        # For single gene prediction, we need to create a minimal feature matrix
-        # In practice, this would be more sophisticated
-        gene_features = self._prepare_gene_features([request.genes[0]])
+            # Align columns
+            if hasattr(model, 'feature_names_in_'):
+                model_features = model.feature_names_in_
+                feature_df = feature_df.reindex(columns=model_features, fill_value=0)
 
-        # Make prediction
-        if hasattr(model, 'predict_proba'):
-            probabilities = model.predict_proba(gene_features)
-            prediction = probabilities[0, 1]  # Probability of positive class
-        else:
-            prediction = float(model.predict(gene_features)[0])
+            # Make prediction
+            if hasattr(model, 'predict_proba'):
+                prediction = model.predict_proba(feature_df)[0, 1]
+            else:
+                prediction = float(model.predict(feature_df)[0])
 
-        result = PredictionResult(
-            gene=request.genes[0],
-            prediction=prediction,
-            probability=prediction if request.return_probabilities else 0.0,
-            model_name=request.model_name,
-            timestamp=time.time()
-        )
-
-        return result
+            return APIPredictionResponse(
+                prediction=prediction,
+                model_version=model_version
+            )
+        except ValidationError as e:
+            raise PredictionError(f"Invalid request format: {e}")
+        except Exception as e:
+            raise PredictionError(f"Prediction failed: {e}")
 
     def predict_batch(self, request: PredictionRequest) -> BatchPredictionResult:
         """Make batch predictions."""
