@@ -915,8 +915,6 @@ Key files:
 | `make experiment-report` | **Generate detailed experiment report** |
 | `make compare-experiments` | **Compare multiple experiments** |
 | `make rollback` | **Rollback to previous model version** |
-| `make k8s-apply` | **Deploy application to Kubernetes** |
-| `make k8s-delete` | **Remove application from Kubernetes** |
 | `make all` | Full deterministic chain |
 | `make pytest` | Run lightweight unit tests |
 
