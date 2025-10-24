@@ -45,3 +45,4 @@ spec:
           value: "http://mlflow-service:5000"
         - name: PYTHONUNBUFFERED
           value: "1"
+

@@ -29,12 +29,11 @@ CLI := $(ENV_EXPORT) $(PYTHON_RUN) -m oncotarget_lite.cli $(PROFILE_ARGS)
 
 .DEFAULT_GOAL := all
 
-.PHONY: setup sync download-data prepare train optimize evaluate explain dashboard cache performance scorecard snapshot docs docs-targets \
+.PHONY: setup sync download-data prepare train optimize evaluate explain dashboard cache scorecard snapshot docs docs-targets \
     monitor-report interpretability-validate model-card docs-monitoring docs-interpretability mkdocs-build \
     all clean pytest lint format mypy bandit pre-commit security ablations distributed monitor \
     validate-interpretability retrain deploy versions cleanup serve rollback compare compare-interactive \
-    validate-data lineage drift experiment experiments experiment-report compare-experiments export-requirements docker.build.cpu docker.build.cuda docker.push.cpu docker.push.cuda \
-    k8s-apply k8s-delete
+    validate-data lineage drift experiment experiments experiment-report compare-experiments export-requirements docker.build.cpu docker.build.cuda docker.push.cpu docker.push.cuda
 
 setup:
 ifeq ($(HAS_UV),1)
@@ -56,7 +55,7 @@ download-data:
 	$(ENV_EXPORT) $(PYTHON_RUN) scripts/download_data.py $(FAST_FLAG)
 
 prepare:
-	$(CLI) prepare --optimize
+	$(CLI) prepare
 
 train:
 	$(CLI) train
@@ -75,9 +74,6 @@ dashboard:
 
 cache:
 	$(CLI) cache
-
-performance:
-	$(CLI) performance stats
 
 scorecard:
 	$(CLI) scorecard
@@ -239,7 +235,7 @@ compare-experiments:
 	@echo "Usage: make compare-experiments IDS=<id1,id2,id3>"
 	@echo "Example: make compare-experiments IDS=exp_1,exp_2,exp_3"
 
-all: setup prepare train optimize evaluate explain dashboard cache performance scorecard docs snapshot
+all: setup prepare train optimize evaluate explain dashboard cache scorecard docs snapshot
 
 pytest:
 	$(ENV_EXPORT) $(PYTHON_RUN) -m pytest -q
@@ -284,12 +280,6 @@ docker.push.cpu:
 
 docker.push.cuda:
 	docker push oncotarget-lite:cuda
-
-k8s-apply:
-	kubectl apply -k kubernetes/
-
-k8s-delete:
-	kubectl delete -k kubernetes/
 
 clean:
 	rm -rf .venv __pycache__ mlruns models reports docs/site .pytest_cache .mypy_cache .ruff_cache

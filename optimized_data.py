@@ -259,3 +259,4 @@ def optimize_dataframe_memory(df: Union[pd.DataFrame, pl.DataFrame]) -> Union[pd
     """Optimize any DataFrame for memory usage."""
     loader = OptimizedDataLoader()
     return loader.optimize_dtypes(df)
+

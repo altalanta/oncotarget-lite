@@ -162,3 +162,4 @@ def get_resilience_manager() -> ResilienceManager:
     if _resilience_manager is None:
         _resilience_manager = ResilienceManager()
     return _resilience_manager
+
