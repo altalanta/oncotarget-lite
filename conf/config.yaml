@@ -1,15 +1,31 @@
-prepare:
-  seed: 42
-  test_size: 0.3
-train:
-  seed: 42
-  C: 1.0
-  max_iter: 500
-eval:
-  seed: 42
-  n_bootstrap: 1000
-  ci: 0.95
-  bins: 10
-explain:
-  seed: 42
-  background_size: 100
+# @package _global_
+
+# Configure defaults for the experiment
+defaults:
+  - model:
+      - logreg
+      - xgb
+      - lgb
+  - _self_
+
+experiment_name: comprehensive_model_optimization
+metrics:
+  - auroc
+  - ap
+  - accuracy
+  - f1
+  - brier
+  - ece
+optimization_direction: maximize
+n_trials: 100
+timeout: null
+cv_folds: 5
+random_seed: 42
+
+# hydra configuration
+hydra:
+  run:
+    dir: ./mlruns/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  sweep:
+    dir: ./mlruns/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ${hydra.job.num}
