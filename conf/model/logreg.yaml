@@ -1,3 +1,4 @@
 C: {type: loguniform, low: 0.0001, high: 100.0}
 max_iter: {type: int, low: 100, high: 1000}
 class_weight: {type: categorical, choices: [balanced, null]}
+
