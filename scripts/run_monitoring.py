@@ -40,6 +40,14 @@ def main():
     report.save_html("reports/monitoring_report.html")
     print("Monitoring report saved to reports/monitoring_report.html")
 
+    # Check for drift and write the result to a file for the CI pipeline
+    drift_detected = report.as_dict()['metrics'][0]['result']['dataset_drift']
+    with open("drift_detected.txt", "w") as f:
+        f.write(str(drift_detected).lower())
+    
+    print(f"Drift detected: {drift_detected}")
+
 if __name__ == "__main__":
     main()
+
 
