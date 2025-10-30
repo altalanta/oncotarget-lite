@@ -19,13 +19,28 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, Header
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
+import structlog
 
 from ..schemas import APIPredictionRequest, APIPredictionResponse
 from ..exceptions import APIError, PredictionError
 from ..resilience import get_resilience_manager
 from deployment.prediction_service import PredictionService
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
+
+def setup_logging():
+    """Configure structured logging."""
+    structlog.configure(
+        processors=[
+            structlog.stdlib.add_log_level,
+            structlog.stdlib.add_logger_name,
+            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.processors.JSONRenderer(),
+        ],
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        wrapper_class=structlog.stdlib.BoundLogger,
+        cache_logger_on_first_use=True,
+    )
 
 resilience_manager = get_resilience_manager()
 prediction_service = PredictionService()
@@ -34,6 +49,7 @@ prediction_service = PredictionService()
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     # Startup
+    setup_logging()
     logger.info("Starting model server...")
     # You can preload models or warm up caches here
     yield
