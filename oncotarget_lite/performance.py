@@ -1,272 +1,357 @@
-"""Performance monitoring and profiling utilities.
+"""Performance monitoring and optimization utilities for oncotarget-lite."""
 
-Provides tools for monitoring memory usage, execution time, and system resources
-during model training and evaluation.
-"""
+from __future__ import annotations
 
+import asyncio
 import functools
 import gc
 import logging
-import psutil
+import threading
 import time
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional, Union
 
-import torch
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+
+try:
+    from memory_profiler import profile as memory_profile
+except ImportError:
+    # Define a no-op profile decorator if memory_profiler is not available
+    def memory_profile(func):
+        """No-op decorator when memory_profiler is not available."""
+        return func
+
+from .exceptions import PerformanceError
+from .utils import ensure_dir
+
+logger = logging.getLogger(__name__)
+
+# Global performance monitoring state
+_performance_monitor = None
+_monitoring_enabled = False
 
 
-class ResourceMonitor:
-    """Monitor system resource usage during execution."""
-    
-    def __init__(self):
-        self.process = psutil.Process()
-        self.reset()
-    
-    def reset(self) -> None:
-        """Reset monitoring counters."""
-        self.start_time = time.perf_counter()
-        self.start_memory = self.process.memory_info().rss / 1024 / 1024  # MB
-        self.peak_memory = self.start_memory
-        self.measurements = []
-    
-    def measure(self) -> Dict[str, float]:
-        """Take a measurement of current resource usage."""
-        current_time = time.perf_counter()
-        memory_mb = self.process.memory_info().rss / 1024 / 1024
-        
-        measurement = {
-            'elapsed_time': current_time - self.start_time,
-            'memory_mb': memory_mb,
-            'memory_delta': memory_mb - self.start_memory,
-            'cpu_percent': self.process.cpu_percent()
-        }
-        
-        self.peak_memory = max(self.peak_memory, memory_mb)
-        self.measurements.append(measurement)
-        
-        return measurement
-    
-    def get_summary(self) -> Dict[str, float]:
-        """Get summary statistics for the monitoring period."""
-        if not self.measurements:
-            return {}
-        
-        return {
-            'total_time': self.measurements[-1]['elapsed_time'],
-            'peak_memory_mb': self.peak_memory,
-            'memory_delta_mb': self.peak_memory - self.start_memory,
-            'avg_cpu_percent': sum(m['cpu_percent'] for m in self.measurements) / len(self.measurements)
-        }
+@dataclass
+class MemorySnapshot:
+    """Memory usage snapshot."""
+    timestamp: float
+    rss_mb: float  # Resident Set Size
+    vms_mb: float  # Virtual Memory Size
+    percent: float  # CPU percentage
+    available_mb: float  # Available system memory
+    total_mb: float  # Total system memory
+
+
+@dataclass
+class PerformanceMetrics:
+    """Comprehensive performance metrics."""
+    operation_name: str
+    duration_seconds: float
+    memory_peak_mb: float
+    memory_increase_mb: float
+    cpu_percent: float
+    io_read_mb: float = 0.0
+    io_write_mb: float = 0.0
+    start_memory: MemorySnapshot = field(default_factory=MemorySnapshot)
+    end_memory: MemorySnapshot = field(default_factory=MemorySnapshot)
+
+
+class PerformanceMonitor:
+    """System-wide performance monitoring and optimization."""
+
+    def __init__(self, enable_monitoring: bool = True, log_interval: int = 30):
+        self.enable_monitoring = enable_monitoring
+        self.log_interval = log_interval
+        self.metrics_history: List[PerformanceMetrics] = []
+        self.memory_threshold_mb = 8 * 1024  # 8GB default threshold
+        self._stop_monitoring = threading.Event()
+        self._monitor_thread: Optional[threading.Thread] = None
+
+    def start_monitoring(self) -> None:
+        """Start background performance monitoring."""
+        if not self.enable_monitoring:
+            return
+
+        if self._monitor_thread and self._monitor_thread.is_alive():
+            logger.warning("Performance monitoring already running")
+            return
+
+        self._stop_monitoring.clear()
+        self._monitor_thread = threading.Thread(
+            target=self._background_monitor,
+            daemon=True
+        )
+        self._monitor_thread.start()
+        logger.info("Started performance monitoring")
+
+    def stop_monitoring(self) -> None:
+        """Stop background performance monitoring."""
+        if not self.enable_monitoring or not self._monitor_thread:
+            return
+
+        self._stop_monitoring.set()
+        if self._monitor_thread.is_alive():
+            self._monitor_thread.join(timeout=5.0)
+
+        logger.info("Stopped performance monitoring")
+
+    def _background_monitor(self) -> None:
+        """Background monitoring loop."""
+        while not self._stop_monitoring.is_set():
+            try:
+                self._check_memory_usage()
+                self._stop_monitoring.wait(self.log_interval)
+            except Exception as e:
+                logger.error(f"Error in background monitoring: {e}")
+                break
+
+    def _check_memory_usage(self) -> None:
+        """Check current memory usage and log warnings if needed."""
+        if not PSUTIL_AVAILABLE:
+            return
+
+        process = psutil.Process()
+        memory_info = process.memory_info()
+        memory_percent = process.memory_percent()
+
+        if memory_info.rss > self.memory_threshold_mb * 1024 * 1024:
+            logger.warning(
+                "High memory usage detected: "
+                f"{memory_info.rss / 1024 / 1024:.1f}MB "
+                f"({memory_percent:.1f}%)"
+            )
+
+    def get_memory_snapshot(self) -> MemorySnapshot:
+        """Get current memory snapshot."""
+        if not PSUTIL_AVAILABLE:
+            # Return dummy values when psutil is not available
+            return MemorySnapshot(
+                timestamp=time.time(),
+                rss_mb=0.0,
+                vms_mb=0.0,
+                percent=0.0,
+                available_mb=0.0,
+                total_mb=0.0
+            )
+
+        process = psutil.Process()
+        memory_info = process.memory_info()
+        system_memory = psutil.virtual_memory()
+
+        return MemorySnapshot(
+            timestamp=time.time(),
+            rss_mb=memory_info.rss / 1024 / 1024,
+            vms_mb=memory_info.vms / 1024 / 1024,
+            percent=process.cpu_percent(),
+            available_mb=system_memory.available / 1024 / 1024,
+            total_mb=system_memory.total / 1024 / 1024
+        )
+
+    def record_metrics(self, metrics: PerformanceMetrics) -> None:
+        """Record performance metrics."""
+        self.metrics_history.append(metrics)
+
+        # Keep only last 1000 metrics to prevent memory growth
+        if len(self.metrics_history) > 1000:
+            self.metrics_history = self.metrics_history[-1000:]
+
+        logger.info(
+            f"Performance: {metrics.operation_name} - "
+            f"{metrics.duration_seconds:.2f}s, "
+            f"Memory: {metrics.memory_peak_mb:.1f}MB "
+            f"(+{metrics.memory_increase_mb:+.1f}MB)"
+        )
+
+    def get_optimization_suggestions(self) -> List[str]:
+        """Get optimization suggestions based on performance history."""
+        suggestions = []
+
+        if not self.metrics_history:
+            return suggestions
+
+        # Analyze memory usage patterns
+        recent_metrics = self.metrics_history[-10:]  # Last 10 operations
+
+        avg_memory_increase = sum(m.memory_increase_mb for m in recent_metrics) / len(recent_metrics)
+        max_memory_peak = max(m.memory_peak_mb for m in recent_metrics)
+
+        if avg_memory_increase > 500:  # More than 500MB average increase
+            suggestions.append(
+                "High memory consumption detected. Consider using streaming processing "
+                "or increasing available memory."
+            )
+
+        if max_memory_peak > self.memory_threshold_mb * 0.8:
+            suggestions.append(
+                "Memory usage approaching threshold. Consider enabling garbage collection "
+                "or using memory-efficient data structures."
+            )
+
+        # Check for slow operations
+        slow_operations = [m for m in recent_metrics if m.duration_seconds > 60]
+        if slow_operations:
+            suggestions.append(
+                f"Found {len(slow_operations)} slow operations (>60s). "
+                "Consider parallel processing or optimization."
+            )
+
+        return suggestions
+
+    def clear_metrics(self) -> None:
+        """Clear performance metrics history."""
+        self.metrics_history.clear()
 
 
 @contextmanager
-def monitor_resources(name: str = "operation", log_interval: float = 30.0):
-    """Context manager for resource monitoring with periodic logging.
-    
-    Args:
-        name: Name of the operation being monitored
-        log_interval: Interval in seconds for periodic logging
-        
-    Example:
-        with monitor_resources("model training") as monitor:
-            # training code here
-            pass
-        summary = monitor.get_summary()
-    """
-    logger = logging.getLogger(__name__)
-    monitor = ResourceMonitor()
-    
-    logger.info(f"Starting resource monitoring for {name}")
-    monitor.reset()
-    
-    last_log_time = time.perf_counter()
-    
+def performance_monitor(operation_name: str, monitor: Optional[PerformanceMonitor] = None):
+    """Context manager for performance monitoring."""
+    if monitor is None:
+        monitor = get_performance_monitor()
+
+    start_memory = monitor.get_memory_snapshot()
+    start_time = time.time()
+
     try:
         yield monitor
     finally:
-        summary = monitor.get_summary()
-        logger.info(f"Completed {name} - {summary}")
+        end_memory = monitor.get_memory_snapshot()
+        end_time = time.time()
+
+        metrics = PerformanceMetrics(
+            operation_name=operation_name,
+            duration_seconds=end_time - start_time,
+            memory_peak_mb=end_memory.rss_mb,
+            memory_increase_mb=end_memory.rss_mb - start_memory.rss_mb,
+            cpu_percent=end_memory.percent,
+            start_memory=start_memory,
+            end_memory=end_memory
+        )
+
+        monitor.record_metrics(metrics)
 
 
-def profile_memory(func: Callable) -> Callable:
-    """Decorator for memory profiling of functions.
-    
-    Logs memory usage before, during, and after function execution.
-    Includes PyTorch GPU memory if available.
-    
-    Example:
-        @profile_memory
-        def train_model():
-            # training code
-            pass
-    """
+def get_performance_monitor() -> PerformanceMonitor:
+    """Get global performance monitor instance."""
+    global _performance_monitor
+    if _performance_monitor is None:
+        _performance_monitor = PerformanceMonitor()
+    return _performance_monitor
+
+
+def enable_performance_monitoring(log_interval: int = 30) -> None:
+    """Enable global performance monitoring."""
+    global _monitoring_enabled
+    if not _monitoring_enabled:
+        monitor = get_performance_monitor()
+        monitor.log_interval = log_interval
+        monitor.start_monitoring()
+        _monitoring_enabled = True
+        logger.info("Performance monitoring enabled")
+
+
+def disable_performance_monitoring() -> None:
+    """Disable global performance monitoring."""
+    global _monitoring_enabled
+    if _monitoring_enabled:
+        monitor = get_performance_monitor()
+        monitor.stop_monitoring()
+        _monitoring_enabled = False
+        logger.info("Performance monitoring disabled")
+
+
+def force_garbage_collection() -> Dict[str, Any]:
+    """Force garbage collection and return memory stats."""
+    import gc
+
+    collected_before = gc.get_stats()
+
+    # Force garbage collection
+    gc.collect()
+
+    collected_after = gc.get_stats()
+
+    # Get memory info if psutil is available
+    if PSUTIL_AVAILABLE:
+        process = psutil.Process()
+        memory_info = process.memory_info()
+        current_memory_mb = memory_info.rss / 1024 / 1024
+    else:
+        current_memory_mb = 0.0
+
+    return {
+        "memory_freed_mb": (collected_before[-1]['collected'] - collected_after[-1]['collected']) * 28,  # Rough estimate
+        "current_memory_mb": current_memory_mb,
+        "objects_collected": collected_after[-1]['collected'] - collected_before[-1]['collected']
+    }
+
+
+def memory_optimized_function(func: Callable) -> Callable:
+    """Decorator for memory optimization."""
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        logger = logging.getLogger(func.__module__)
-        
-        # Initial memory measurement
-        process = psutil.Process()
-        start_memory = process.memory_info().rss / 1024 / 1024
-        
-        gpu_memory_start = None
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            gpu_memory_start = torch.cuda.memory_allocated() / 1024 / 1024
-        
-        logger.info(f"Starting {func.__name__} - RAM: {start_memory:.1f} MB" + 
-                   (f", GPU: {gpu_memory_start:.1f} MB" if gpu_memory_start else ""))
-        
-        start_time = time.perf_counter()
-        
+        # Force GC before function execution
+        gc.collect()
+
         try:
             result = func(*args, **kwargs)
+            return result
         finally:
-            # Final memory measurement
-            end_time = time.perf_counter()
-            end_memory = process.memory_info().rss / 1024 / 1024
-            
-            gpu_memory_end = None
-            if torch.cuda.is_available():
-                gpu_memory_end = torch.cuda.memory_allocated() / 1024 / 1024
-            
-            logger.info(
-                f"Completed {func.__name__} in {end_time - start_time:.2f}s - "
-                f"RAM: {end_memory:.1f} MB (Δ{end_memory - start_memory:+.1f})" +
-                (f", GPU: {gpu_memory_end:.1f} MB (Δ{gpu_memory_end - gpu_memory_start:+.1f})" 
-                 if gpu_memory_end else "")
-            )
-        
-        return result
+            # Force GC after function execution
+            gc.collect()
+
     return wrapper
 
 
-class PerformanceProfiler:
-    """Detailed performance profiler for ML pipelines."""
-    
-    def __init__(self, output_dir: Optional[Path] = None):
-        self.output_dir = output_dir
-        self.metrics = {}
-        self.start_times = {}
-        
-    def start_timer(self, name: str) -> None:
-        """Start timing an operation."""
-        self.start_times[name] = time.perf_counter()
-        
-    def end_timer(self, name: str) -> float:
-        """End timing an operation and return duration."""
-        if name not in self.start_times:
-            raise ValueError(f"Timer '{name}' was not started")
-        
-        duration = time.perf_counter() - self.start_times[name]
-        
-        if name not in self.metrics:
-            self.metrics[name] = []
-        self.metrics[name].append(duration)
-        
-        del self.start_times[name]
-        return duration
-    
-    @contextmanager
-    def time_operation(self, name: str):
-        """Context manager for timing operations."""
-        self.start_timer(name)
-        try:
-            yield
-        finally:
-            self.end_timer(name)
-    
-    def get_metrics(self) -> Dict[str, Dict[str, float]]:
-        """Get summary metrics for all timed operations."""
-        summary = {}
-        
-        for name, times in self.metrics.items():
-            summary[name] = {
-                'total_time': sum(times),
-                'avg_time': sum(times) / len(times),
-                'min_time': min(times),
-                'max_time': max(times),
-                'count': len(times)
-            }
-        
-        return summary
-    
-    def save_profile(self, filepath: Optional[Path] = None) -> None:
-        """Save profiling results to JSON file."""
-        if filepath is None and self.output_dir:
-            filepath = self.output_dir / "performance_profile.json"
-        
-        if filepath:
-            import json
-            with open(filepath, 'w') as f:
-                json.dump(self.get_metrics(), f, indent=2)
+def lazy_import(module_name: str, func_name: str = None):
+    """Lazy import decorator for heavy modules."""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            if func_name:
+                module = __import__(module_name, fromlist=[func_name])
+                imported_func = getattr(module, func_name)
+            else:
+                module = __import__(module_name, fromlist=[''])
+                imported_func = module
+
+            # Replace the lazy import with the actual import
+            globals()[func.__name__] = imported_func
+            return imported_func(*args, **kwargs)
+        return wrapper
+    return decorator
 
 
-def optimize_memory() -> Dict[str, float]:
-    """Optimize memory usage by running garbage collection and clearing caches.
-    
-    Returns:
-        Dictionary with memory statistics before and after optimization
-    """
-    process = psutil.Process()
-    
-    # Before optimization
-    memory_before = process.memory_info().rss / 1024 / 1024
-    gpu_memory_before = None
-    
-    if torch.cuda.is_available():
-        gpu_memory_before = torch.cuda.memory_allocated() / 1024 / 1024
-    
-    # Optimization steps
-    gc.collect()  # Python garbage collection
-    
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()  # Clear PyTorch GPU cache
-        torch.cuda.synchronize()  # Ensure all operations complete
-    
-    # After optimization
-    memory_after = process.memory_info().rss / 1024 / 1024
-    gpu_memory_after = None
-    
-    if torch.cuda.is_available():
-        gpu_memory_after = torch.cuda.memory_allocated() / 1024 / 1024
-    
-    stats = {
-        'ram_before_mb': memory_before,
-        'ram_after_mb': memory_after,
-        'ram_freed_mb': memory_before - memory_after
-    }
-    
-    if gpu_memory_before is not None:
-        stats.update({
-            'gpu_before_mb': gpu_memory_before,
-            'gpu_after_mb': gpu_memory_after,
-            'gpu_freed_mb': gpu_memory_before - gpu_memory_after
-        })
-    
-    return stats
+# Optimized data structures for memory efficiency
+class MemoryEfficientDict(dict):
+    """Memory-efficient dictionary with automatic cleanup."""
 
+    def __init__(self, max_size: int = 1000, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.max_size = max_size
+        self._access_order = []
 
-def log_system_info(logger: logging.Logger = None) -> None:
-    """Log comprehensive system information for reproducibility."""
-    if logger is None:
-        logger = logging.getLogger(__name__)
-    
-    # System information
-    logger.info(f"System: {psutil.os.name} {psutil.os.path.basename(psutil.os.path.dirname(psutil.os.__file__))}")
-    logger.info(f"CPU: {psutil.cpu_count()} cores, {psutil.cpu_count(logical=False)} physical")
-    
-    # Memory information
-    memory = psutil.virtual_memory()
-    logger.info(f"RAM: {memory.total / 1024**3:.1f} GB total, {memory.available / 1024**3:.1f} GB available")
-    
-    # GPU information
-    if torch.cuda.is_available():
-        logger.info(f"CUDA: {torch.version.cuda}")
-        logger.info(f"GPU: {torch.cuda.get_device_name()}")
-        logger.info(f"GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
-    else:
-        logger.info("CUDA: Not available")
-    
-    # PyTorch version
-    logger.info(f"PyTorch: {torch.__version__}")
+    def __setitem__(self, key, value):
+        if key not in self:
+            self._access_order.append(key)
+
+        super().__setitem__(key, value)
+
+        # Cleanup if over max size
+        if len(self) > self.max_size:
+            self._cleanup()
+
+    def _cleanup(self):
+        """Remove least recently used items."""
+        if len(self._access_order) > self.max_size // 2:
+            # Remove oldest 25% of items
+            to_remove = self._access_order[:len(self._access_order) // 4]
+            for key in to_remove:
+                if key in self:
+                    del self[key]
+            self._access_order = self._access_order[len(self._access_order) // 4:]

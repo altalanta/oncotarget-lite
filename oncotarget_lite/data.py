@@ -17,6 +17,8 @@ from .utils import dataset_hash, ensure_dir, save_dataframe, save_json, set_seed
 from .features.orchestrator import FeatureOrchestrator
 from .scalable_loader import ScalableDataLoader
 from .scalable_orchestrator import ScalableFeatureOrchestrator
+from .optimized_data import OptimizedDataLoader, create_optimized_pipeline
+from .performance import enable_performance_monitoring, get_performance_monitor
 
 RAW_DIR = Path("data/raw")
 PROCESSED_DIR = Path("data/processed")
@@ -117,6 +119,78 @@ def _load_raw_tables(raw_dir: Path) -> dict[str, pd.DataFrame]:
     return tables
 
 
+def _load_raw_tables_optimized(raw_dir: Path, optimized_loader: OptimizedDataLoader) -> dict[str, pd.DataFrame]:
+    """Load raw tables using optimized data processing."""
+    from concurrent.futures import ThreadPoolExecutor
+    import multiprocessing as mp
+
+    tables: dict[str, pd.DataFrame] = {}
+
+    # Load unique files in parallel using optimized loader
+    unique_files = {}
+    for key, filename in RAW_FILES.items():
+        file_path = raw_dir / filename
+        if file_path not in unique_files:
+            unique_files[file_path] = key
+
+    # Process files in parallel
+    n_jobs = min(mp.cpu_count(), len(unique_files))
+    with ThreadPoolExecutor(max_workers=n_jobs) as executor:
+        file_futures = {
+            file_path: executor.submit(_read_csv_optimized, file_path, optimized_loader)
+            for file_path in unique_files.keys()
+        }
+
+        loaded_files = {}
+        for file_path, future in file_futures.items():
+            loaded_files[file_path] = future.result()
+
+    # Distribute loaded files to tables
+    for key, filename in RAW_FILES.items():
+        file_path = raw_dir / filename
+        if key == "gtex":
+            tables[key] = loaded_files[file_path].copy()
+        elif key == "tcga":
+            tables[key] = loaded_files[file_path].copy()  # Same data, different processing in _wide_expression
+        else:
+            tables[key] = loaded_files[file_path]
+
+    return tables
+
+
+def _read_csv_optimized(path: Path, optimized_loader: OptimizedDataLoader) -> pd.DataFrame:
+    """Read CSV using optimized processing."""
+    # Use optimized loader for better performance
+    df = optimized_loader.load_features(path)
+
+    # Convert back to pandas if needed for compatibility
+    if hasattr(df, 'to_pandas'):
+        df = df.to_pandas()
+
+    # Normalize column names
+    df.columns = [c.strip() for c in df.columns]
+
+    # Different files have different required columns
+    if "expression.csv" in str(path):
+        required = ["gene", "median_TPM"]
+    elif "dependencies.csv" in str(path):
+        required = ["gene", "median_TPM"]
+    elif "annotations.csv" in str(path):
+        required = ["gene"]
+    elif "ppi_degree_subset.csv" in str(path):
+        required = ["gene", "degree"]
+    else:
+        required = REQUIRED_COLUMNS
+
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise DataPreparationError(
+            f"{path}: missing required columns {missing}; "
+            f"got {list(df.columns)}. Ensure comment headers start with '#'."
+        )
+    return df
+
+
 def _wide_expression(frame: pd.DataFrame, pivot_col: str, prefix: str) -> pd.DataFrame:
     """Create wide format expression data with synthetic tissue types for demo."""
     # For demo purposes, create synthetic tissue types since we only have one expression file
@@ -171,10 +245,18 @@ def _merge_tables(tables: dict[str, pd.DataFrame]) -> pd.DataFrame:
     return merged
 
 
-def build_feature_matrix(raw_dir: Path = RAW_DIR, use_advanced_features: bool = True, use_scalable_processing: bool = True) -> tuple[pd.DataFrame, pd.Series]:
-    """Load cached CSVs and derive model-ready features + labels with optional scalable processing."""
+def build_feature_matrix(raw_dir: Path = RAW_DIR, use_advanced_features: bool = True, use_scalable_processing: bool = True, use_optimized_processing: bool = True) -> tuple[pd.DataFrame, pd.Series]:
+    """Load cached CSVs and derive model-ready features + labels with optional scalable and optimized processing."""
 
-    if use_scalable_processing:
+    # Enable performance monitoring
+    enable_performance_monitoring()
+
+    if use_optimized_processing:
+        # Use optimized data loader for maximum performance
+        optimized_loader = create_optimized_pipeline(use_polars=True, use_modin=False)
+        tables = _load_raw_tables_optimized(raw_dir, optimized_loader)
+        print(f"🚀 Loaded {len(tables)} data tables with optimized processing")
+    elif use_scalable_processing:
         # Use scalable data loader for better performance
         loader = ScalableDataLoader()
         tables = loader.load_raw_tables_parallel(raw_dir)
@@ -268,15 +350,19 @@ def prepare_dataset(
     processed_dir: Path = PROCESSED_DIR,
     test_size: float = 0.3,
     seed: int = 42,
+    use_optimized_processing: bool = True,
 ) -> PreparedData:
-    """Generate the canonical processed artefacts for downstream stages."""
+    """Generate the canonical processed artefacts for downstream stages with optional optimization."""
 
     set_seeds(seed)
 
     # Initialize data quality monitoring
     quality_monitor = DataQualityMonitor()
 
-    features, labels = build_feature_matrix(raw_dir)
+    features, labels = build_feature_matrix(
+        raw_dir,
+        use_optimized_processing=use_optimized_processing
+    )
 
     if labels.sum() == 0 or labels.sum() == len(labels):
         raise DataPreparationError("Labels are degenerate; need both positive and negative samples")

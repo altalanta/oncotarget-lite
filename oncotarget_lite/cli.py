@@ -114,6 +114,7 @@ def _start_run(run_name: str | None = None):
 def prepare(
     raw_dir: Path = typer.Option(RAW_DIR, dir_okay=True, help="Directory with synthetic raw CSVs"),
     processed_dir: Path = typer.Option(PROCESSED_DIR, dir_okay=True, help="Output directory"),
+    optimize: bool = typer.Option(True, "--optimize/--no-optimize", help="Use optimized data processing"),
     # test_size: float = typer.Option(0.3, min=0.1, max=0.5, help="Test split fraction"), # Removed
     # seed: int = typer.Option(42, help="Random seed"), # Removed
     # profile: Optional[str] = typer.Option(
@@ -123,7 +124,7 @@ def prepare(
     # ci_mode: bool = typer.Option(False, "--ci", help="Alias for --fast to align with automation scripts"),
     cfg: DictConfig = typer.Context.get_default_value("cfg"),  # Access the Hydra config
 ) -> None:
-    """Create processed features, labels, and splits."""
+    """Create processed features, labels, and splits with optional performance optimization."""
 
     # Removed custom profile logic as Hydra will handle this
     # resolved = _with_overrides(
@@ -142,7 +143,11 @@ def prepare(
 
     data_module = _data_module()
     prepared = data_module.prepare_dataset(
-        raw_dir=raw_dir, processed_dir=processed_dir, test_size=test_size, seed=seed
+        raw_dir=raw_dir,
+        processed_dir=processed_dir,
+        test_size=test_size,
+        seed=seed,
+        use_optimized_processing=optimize
     )
     typer.echo(
         json.dumps(
@@ -339,6 +344,66 @@ def cache(
 
     else:
         typer.echo(f"❌ Unknown action: {action}. Use: info, clear, benchmark")
+
+
+@app.command()
+def performance(
+    action: str = typer.Argument("stats", help="Action: stats, optimize, preload"),
+    model_type: Optional[str] = typer.Option(None, help="Model type to preload (for preload action)"),
+) -> None:
+    """Performance monitoring and optimization commands."""
+    from .performance import get_performance_monitor, preload_common_trainers
+    from .trainers import preload_trainer
+
+    if action == "stats":
+        monitor = get_performance_monitor()
+        suggestions = monitor.get_optimization_suggestions()
+
+        typer.echo("📊 Performance Statistics:")
+        typer.echo(f"   Operations tracked: {len(monitor.metrics_history)}")
+        typer.echo(f"   Memory threshold: {monitor.memory_threshold_mb / 1024:.1f}GB")
+
+        if suggestions:
+            typer.echo("\n💡 Optimization Suggestions:")
+            for suggestion in suggestions:
+                typer.echo(f"   • {suggestion}")
+        else:
+            typer.echo("\n✅ No optimization suggestions - performance looks good!")
+
+        # Show recent metrics if available
+        if monitor.metrics_history:
+            recent = monitor.metrics_history[-5:]  # Last 5 operations
+            typer.echo("\n📈 Recent Operations:")
+            for metric in recent:
+                typer.echo(f"   {metric.operation_name}: {metric.duration_seconds:.2f}s, "
+                          f"{metric.memory_peak_mb:.1f}MB")
+
+    elif action == "preload":
+        if model_type:
+            # Preload specific trainer
+            success = preload_trainer(model_type)
+            if success:
+                typer.echo(f"✅ Preloaded {model_type} trainer successfully")
+            else:
+                typer.echo(f"❌ Failed to preload {model_type} trainer (dependencies missing)")
+        else:
+            # Preload common trainers
+            typer.echo("🚀 Preloading common trainers...")
+            results = preload_common_trainers()
+            for trainer_type, success in results.items():
+                status = "✅" if success else "❌"
+                typer.echo(f"   {status} {trainer_type}")
+
+    elif action == "optimize":
+        typer.echo("🔧 Performance optimization tips:")
+        typer.echo("   • Use --optimize flag with prepare command for faster data loading")
+        typer.echo("   • Set ONCOTARGET_LITE_FAST=1 for CI mode (faster but less accurate)")
+        typer.echo("   • Use Polars backend: install polars[all] for 10x faster DataFrame operations")
+        typer.echo("   • Enable distributed computing: use --distributed flag")
+        typer.echo("   • Preload trainers: run 'oncotarget-lite performance preload'")
+
+    else:
+        typer.echo(f"❌ Unknown action: {action}. Use: stats, optimize, preload")
 
 
 @app.command()
