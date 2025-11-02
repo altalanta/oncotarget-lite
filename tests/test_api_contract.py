@@ -61,3 +61,4 @@ def test_health_check_contract(test_client):
     assert "model_status" in response_data
     assert "last_updated" in response_data
 
+
