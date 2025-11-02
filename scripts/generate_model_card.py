@@ -1,162 +1,94 @@
-"""Generate a lightweight model card from the latest MLflow run."""
-
-from __future__ import annotations
-
-import argparse
+#!/usr/bin/env python3
+"""
+Generates a dynamic model card from a template and various project artifacts.
+"""
 import json
+import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Iterable, Optional, Tuple
+import yaml
 
-from oncotarget_lite.utils import ensure_dir, git_commit
-
-
-def _load_json(path: Path) -> Dict[str, object]:
-    if not path.exists():
-        return {}
-    with path.open("r", encoding="utf-8") as handle:
-        return json.load(handle)
-
-
-def _format_table(rows: Iterable[tuple[str, str]]) -> str:
-    header = "| Metric | Value |\n| --- | --- |"
-    body = "\n".join(f"| {name} | {value} |" for name, value in rows)
-    return f"{header}\n{body}"
-
-
-def _find_latest_run() -> Tuple[Optional["mlflow.entities.Run"], str]:
+def get_git_commit() -> str:
+    """Get the current git commit hash."""
     try:
-        import mlflow
-        from mlflow.tracking import MlflowClient
-    except Exception as exc:  # pragma: no cover - dependency not available
-        raise RuntimeError("MLflow is required to generate the model card") from exc
+        return subprocess.check_output(['git', 'rev-parse', 'HEAD']).strip().decode('utf-8')
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return "N/A"
 
-    client = MlflowClient()
-    tracking_uri = mlflow.get_tracking_uri() or "mlruns"
-    experiment = client.get_experiment_by_name("oncotarget-lite")
-    experiment_ids = [experiment.experiment_id] if experiment else ["0"]
+def get_dvc_data_hash() -> str:
+    """Get the data hash from dvc.lock for the processed data directory."""
+    try:
+        with open("dvc.lock") as f:
+            lock_data = yaml.safe_load(f)
+        return lock_data['stages']['prepare']['outs'][0]['md5']
+    except (FileNotFoundError, KeyError, IndexError):
+        return "N/A"
 
-    runs = client.search_runs(
-        experiment_ids=experiment_ids,
-        order_by=["attribute.start_time DESC"],
-        max_results=1,
-    )
-    return (runs[0] if runs else None, tracking_uri)
+def main():
+    """Main function to generate the model card."""
+    print("🚀 Generating dynamic model card...")
 
+    # Define paths
+    template_path = Path("oncotarget_lite/model_card_template.md")
+    output_path = Path("docs/model_card.md")
+    metrics_path = Path("eval_results/evaluation_metrics.json")
+    model_info_path = Path("eval_results/model_info.json")
 
-def build_model_card(output: Path) -> Path:
-    run, tracking_uri = _find_latest_run()
+    # Load data from artifacts
+    try:
+        with open(metrics_path) as f:
+            metrics = json.load(f)
+    except FileNotFoundError:
+        print(f"Warning: Metrics file not found at {metrics_path}. Using placeholder data.")
+        metrics = {k: "N/A" for k in ["auroc", "ap", "accuracy", "f1", "brier", "ece"]}
 
-    metrics: Dict[str, float] = {}
-    params: Dict[str, str] = {}
-    tags: Dict[str, str] = {}
-    run_id = "unknown"
-    start_time: Optional[datetime] = None
+    try:
+        with open(model_info_path) as f:
+            model_info = json.load(f)
+    except FileNotFoundError:
+        print(f"Warning: Model info file not found at {model_info_path}. Using placeholder data.")
+        model_info = {"model_version": "N/A", "model_type": "N/A", "training_params": {}}
 
-    if run:
-        metrics = run.data.metrics.copy()
-        params = run.data.params.copy()
-        tags = run.data.tags.copy()
-        run_id = run.info.run_id
-        if run.info.start_time:
-            start_time = datetime.fromtimestamp(run.info.start_time / 1000.0)
+    # Prepare the context for the template
+    context = {
+        "model_version": model_info.get("model_version", "N/A"),
+        "model_type": model_info.get("model_type", "N/A"),
+        "release_date": datetime.now().strftime("%Y-%m-%d"),
+        "git_commit": get_git_commit(),
+        "dvc_data_hash": get_dvc_data_hash(),
+        "auroc": f"{metrics.get('auroc', 0):.4f}",
+        "ap": f"{metrics.get('ap', 0):.4f}",
+        "accuracy": f"{metrics.get('accuracy', 0):.4f}",
+        "f1": f"{metrics.get('f1', 0):.4f}",
+        "brier": f"{metrics.get('brier', 0):.4f}",
+        "ece": f"{metrics.get('ece', 0):.4f}",
+    }
 
-    calibration = _load_json(Path("reports/calibration.json"))
-    bootstrap = _load_json(Path("reports/bootstrap.json"))
+    # Format training parameters into a markdown table
+    params = model_info.get("training_params", {})
+    params_table = "\n".join(f"| {key} | `{value}` |" for key, value in params.items())
+    context["training_parameters"] = params_table
 
-    ci_rows = []
-    for metric in ("auroc", "ap"):
-        interval = bootstrap.get(metric, {}) if isinstance(bootstrap, dict) else {}
-        if not isinstance(interval, dict) or not interval:
-            continue
-        mean = interval.get("mean", "n/a")
-        half = interval.get("ci_half_width", "n/a")
-        if isinstance(mean, (int, float)) and isinstance(half, (int, float)):
-            value = f"{mean:.3f} ± {half:.3f}"
-        else:
-            value = f"{mean} ± {half}"
-        ci_rows.append((metric.upper(), value))
+    # Read the template
+    try:
+        with open(template_path) as f:
+            template_content = f.read()
+    except FileNotFoundError:
+        print(f"Error: Model card template not found at {template_path}")
+        return
 
-    metric_keys = set(metrics.keys())
-    perf_rows = [
-        (
-            "Train AUROC",
-            f"{metrics.get('train_auroc', 'n/a'):.3f}" if "train_auroc" in metric_keys else "n/a",
-        ),
-        (
-            "Train AP",
-            f"{metrics.get('train_ap', 'n/a'):.3f}" if "train_ap" in metric_keys else "n/a",
-        ),
-        (
-            "Test AUROC",
-            f"{metrics.get('test_auroc', metrics.get('auroc', 'n/a')):.3f}" if {"test_auroc", "auroc"} & metric_keys else "n/a",
-        ),
-        (
-            "Test AP",
-            f"{metrics.get('test_ap', metrics.get('ap', 'n/a')):.3f}" if {"test_ap", "ap"} & metric_keys else "n/a",
-        ),
-        ("ECE", f"{metrics.get('ece', 'n/a'):.3f}" if "ece" in metric_keys else "n/a"),
-        ("Brier", f"{metrics.get('brier', 'n/a'):.3f}" if "brier" in metric_keys else "n/a"),
-    ]
+    # Populate the template
+    populated_content = template_content
+    for key, value in context.items():
+        placeholder = f"{{{{ {key} }}}}"
+        populated_content = populated_content.replace(placeholder, str(value))
 
-    calibration_summary = "N/A"
-    if isinstance(calibration, dict):
-        bins = calibration.get("bins")
-        if isinstance(bins, list) and bins:
-            calibration_summary = f"{len(bins)} bins; mean expected={calibration.get('mean_expected', 'n/a')}, mean observed={calibration.get('mean_observed', 'n/a')}"
+    # Write the output file
+    output_path.parent.mkdir(exist_ok=True)
+    with open(output_path, "w") as f:
+        f.write(populated_content)
 
-    metadata_rows = [
-        ("Run ID", run_id),
-        ("Timestamp", start_time.isoformat() if start_time else "n/a"),
-        ("Git Commit", tags.get("git_commit", git_commit())),
-        ("Dataset Hash", tags.get("dataset_hash", "n/a")),
-        ("Tracking URI", tracking_uri),
-    ]
-
-    params_rows = [(key, str(value)) for key, value in sorted(params.items())]
-
-    content = [
-        "# Model Card",
-        "",
-        "## Metadata",
-        _format_table(metadata_rows),
-        "",
-        "## Performance",
-        _format_table(perf_rows),
-    ]
-
-    if ci_rows:
-        content.extend(["", "### Confidence Intervals", _format_table(ci_rows)])
-
-    content.extend(
-        [
-            "",
-            "## Calibration",
-            calibration_summary,
-            "",
-            "## Training Parameters",
-            _format_table(params_rows or [("(none)", "-")]),
-        ]
-    )
-
-    ensure_dir(output.parent)
-    output.write_text("\n".join(content) + "\n", encoding="utf-8")
-    return output
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Generate docs/model_card.md from MLflow artefacts")
-    parser.add_argument(
-        "--output",
-        type=Path,
-        default=Path("docs/model_card.md"),
-        help="Output markdown path",
-    )
-    args = parser.parse_args()
-
-    build_model_card(args.output)
-    return 0
-
+    print(f"✅ Model card successfully generated at: {output_path}")
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()
