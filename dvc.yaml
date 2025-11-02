@@ -17,7 +17,14 @@ stages:
       - data/processed/features.parquet
       - data/processed/labels.parquet
       - data/processed/splits.json
-
+  materialize-features:
+    cmd: python scripts/materialize_features.py
+    deps:
+      - data/processed/labels.parquet
+      - oncotarget_lite/features
+      - scripts/materialize_features.py
+    outs:
+      - data/processed/engineered_features.parquet
   train:
     cmd: python -m oncotarget_lite.cli train --seed ${train.seed} --C ${train.C} --max-iter ${train.max_iter}
     params:

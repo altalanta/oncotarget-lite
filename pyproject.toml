@@ -108,6 +108,7 @@ dependencies = [
     "prompt-toolkit==3.0.52",
     "propcache==0.4.1",
     "protobuf==5.29.5",
+    "prometheus-fastapi-instrumentator>=7.0.0",
     "psutil==6.1.1",
     "pyarrow==15.0.2",
     "pyasn1==0.6.1",

@@ -284,3 +284,11 @@ docker.push.cuda:
 clean:
 	rm -rf .venv __pycache__ mlruns models reports docs/site .pytest_cache .mypy_cache .ruff_cache
 	rm -f reports/run_context.json
+
+.PHONY: data
+data:
+	dvc pull
+
+.PHONY: features
+features:
+	python scripts/materialize_features.py

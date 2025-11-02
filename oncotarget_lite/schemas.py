@@ -4,7 +4,29 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, Field, conint, constr
+
+
+class APIPredictionRequest(BaseModel):
+    """Schema for API prediction requests."""
+    features: Dict[str, float]
+    model_version: Optional[str] = None
+
+
+class APIPredictionResponse(BaseModel):
+    """Schema for API prediction responses."""
+    prediction: float
+    model_version: str
+
+
+class TrainingConfig(BaseModel):
+    """Schema for training configuration."""
+    seed: int = 42
+    C: float = 1.0
+    max_iter: int = 500
+    model_type: constr(regex="^(logreg|xgb|lgb|mlp|transformer|gnn)$") = "logreg"
 
 
 def validate_manifest_schema(manifest_data: Dict[str, Any]) -> List[str]:
