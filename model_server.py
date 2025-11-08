@@ -20,6 +20,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
 import structlog
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from ..schemas import APIPredictionRequest, APIPredictionResponse
 from ..exceptions import APIError, PredictionError
@@ -64,6 +65,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+# Instrument the app with Prometheus metrics
+Instrumentator().instrument(app).expose(app)
 
 # Add CORS middleware
 app.add_middleware(
