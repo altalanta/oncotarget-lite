@@ -21,6 +21,7 @@ n_trials: 100
 timeout: null
 cv_folds: 5
 random_seed: 42
+parallel_jobs: 4 # Default to 4 parallel jobs
 
 # hydra configuration
 hydra:
