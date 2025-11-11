@@ -38,3 +38,5 @@ class AppConfig(BaseModel):
     model: Dict[str, ModelConfig]
     hydra: HydraConfig
 
+
+
