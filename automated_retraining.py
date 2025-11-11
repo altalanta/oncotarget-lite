@@ -343,6 +343,10 @@ class AutomatedRetrainingPipeline:
                     )
                 )
 
+                # Register the model in the MLflow Model Registry
+                model_uri = f"runs:/{run.info.run_id}/model"
+                mlflow.register_model(model_uri, "oncotarget-lite")
+                
                 return {
                     "success": True,
                     "run_id": run.info.run_id,
