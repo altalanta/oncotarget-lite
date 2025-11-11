@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional
 
 import joblib
 import pandas as pd
+import mlflow
 
 from ..utils import ensure_dir
 
@@ -63,23 +64,36 @@ class ModelLoader:
                 return json.load(f)
         return {}
 
-    def load_model(self, model_name: str) -> Any:
-        """Load a specific model by name."""
-        if model_name in self.model_cache:
-            return self.model_cache[model_name]
+    def load_model(self, model_name: str = "oncotarget-lite", stage: str = "Production") -> Any:
+        """
+        Load a specific model.
+        
+        In a production environment, this will load the model from the MLflow Model Registry.
+        For local/dev, it can fall back to a local file.
+        """
+        cache_key = f"{model_name}@{stage}"
+        if cache_key in self.model_cache:
+            return self.model_cache[cache_key]
 
-        if model_name == "main":
+        try:
+            # Attempt to load from MLflow Model Registry first
+            model_uri = f"models:/{model_name}/{stage}"
+            model = mlflow.pyfunc.load_model(model_uri)
+            print(f"Loaded model '{model_name}' version from stage '{stage}' from MLflow Model Registry.")
+            self.model_cache[cache_key] = model
+            return model
+        except Exception as e:
+            print(f"Could not load model from MLflow Model Registry: {e}")
+            print("Falling back to loading from local file path.")
+
+            # Fallback to local file for dev/testing
             model_path = self.models_dir / "logreg_pipeline.pkl"
-        else:
-            model_path = self.models_dir / "ablations" / model_name / "pipeline.pkl"
+            if not model_path.exists():
+                raise FileNotFoundError(f"Model not found at local path: {model_path}")
 
-        if not model_path.exists():
-            raise FileNotFoundError(f"Model not found: {model_path}")
-
-        model = joblib.load(model_path)
-        self.model_cache[model_name] = model
-
-        return model
+            model = joblib.load(model_path)
+            self.model_cache[cache_key] = model
+            return model
 
     def get_model_info(self, model_name: str) -> Dict[str, Any]:
         """Get detailed information about a model."""
