@@ -17,6 +17,12 @@ stages:
       - data/processed/features.parquet
       - data/processed/labels.parquet
       - data/processed/splits.json
+  validate-data:
+    cmd: python scripts/run_data_validation.py
+    deps:
+      - data/raw/clinical_trials.csv
+      - scripts/run_data_validation.py
+      - great_expectations
   materialize-features:
     cmd: python scripts/materialize_features.py
     deps:

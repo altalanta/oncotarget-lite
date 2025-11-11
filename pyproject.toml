@@ -197,6 +197,7 @@ dev = [
     "ruff>=0.4.0",
     "pip-audit>=2.7.0",
     "evidently>=0.4.0",
+    "great-expectations>=0.18.0",
     "pandas-stubs",
     "types-pyyaml",
     "types-requests",
