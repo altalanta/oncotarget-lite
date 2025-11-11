@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oncotarget-lite-api-canary
+  labels:
+    app: oncotarget-lite-canary
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oncotarget-lite-canary
+  template:
+    metadata:
+      labels:
+        app: oncotarget-lite-canary
+    spec:
+      containers:
+      - name: api
+        image: ghcr.io/altalanta/oncotarget-lite:latest  # This will be updated by the CI/CD pipeline
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+          name: http
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "4Gi"
+            cpu: "2"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 15
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        env:
+        - name: MLFLOW_TRACKING_URI
+          value: "http://mlflow-service:5000"
+        - name: PYTHONUNBUFFERED
+          value: "1"
