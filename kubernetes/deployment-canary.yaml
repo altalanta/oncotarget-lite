@@ -41,7 +41,11 @@ spec:
           initialDelaySeconds: 5
           periodSeconds: 10
         env:
+        - name: SERVICE_VERSION
+          value: "canary"
         - name: MLFLOW_TRACKING_URI
           value: "http://mlflow-service:5000"
         - name: PYTHONUNBUFFERED
           value: "1"
+
+

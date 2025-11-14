@@ -10,3 +10,6 @@ spec:
       port: 80
       targetPort: 8000
   type: ClusterIP # Expose the service only within the cluster
+
+
+

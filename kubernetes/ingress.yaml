@@ -1,0 +1,28 @@
+# This Ingress manifest is configured for an NGINX Ingress Controller.
+# It defines the main entry point for traffic and routes it to the stable service.
+# The CI/CD pipeline will dynamically apply a canary configuration to this Ingress
+# to perform traffic splitting during an A/B test.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: oncotarget-lite-ingress
+  annotations:
+    # Specify the ingress class (important if you have multiple ingress controllers)
+    kubernetes.io/ingress.class: "nginx"
+    # The following annotations will be applied by the CI/CD pipeline during a canary release
+    # nginx.ingress.kubernetes.io/canary: "true"
+    # nginx.ingress.kubernetes.io/canary-by-header: "X-Canary-Request" # Example: for targeted testing
+    # nginx.ingress.kubernetes.io/canary-weight: "10" # Example: 10% of traffic to canary
+spec:
+  rules:
+  - host: oncotarget.yourdomain.com # Replace with your actual domain
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: oncotarget-lite-api
+            port:
+              number: 80
+
