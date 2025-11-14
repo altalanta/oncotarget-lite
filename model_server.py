@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, asdict
@@ -26,6 +27,7 @@ from ..schemas import APIPredictionRequest, APIPredictionResponse
 from ..exceptions import APIError, PredictionError
 from ..resilience import get_resilience_manager
 from deployment.prediction_service import PredictionService
+from ..schemas import APIExplanationResponse
 
 logger = structlog.get_logger()
 
@@ -67,7 +69,12 @@ app = FastAPI(
 )
 
 # Instrument the app with Prometheus metrics
-Instrumentator().instrument(app).expose(app)
+# Add a custom label to distinguish between stable and canary deployments
+SERVICE_VERSION = os.environ.get("SERVICE_VERSION", "stable")
+Instrumentator().instrument(
+    app, metric_namespace="oncotarget_lite", metric_labels={"service_version": SERVICE_VERSION}
+).expose(app)
+
 
 # Add CORS middleware
 app.add_middleware(
@@ -88,6 +95,18 @@ async def predict(request: APIPredictionRequest):
         raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail="An unexpected error occurred")
+
+
+@app.post("/explain", response_model=APIExplanationResponse)
+async def explain(request: APIPredictionRequest):
+    """Generate a real-time explanation for a single prediction."""
+    try:
+        return prediction_service.explain_single(request)
+    except PredictionError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        logger.error(f"Unexpected error during explanation: {e}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred during explanation")
 
 
 @app.get("/health")

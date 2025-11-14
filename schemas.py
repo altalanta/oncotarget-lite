@@ -21,6 +21,12 @@ class APIPredictionResponse(BaseModel):
     model_version: str
 
 
+class APIExplanationResponse(BaseModel):
+    """Schema for API explanation responses."""
+    model_version: str
+    feature_contributions: Dict[str, float]
+
+
 class TrainingConfig(BaseModel):
     """Schema for training configuration."""
     seed: int = 42
