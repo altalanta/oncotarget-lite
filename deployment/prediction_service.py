@@ -1,217 +1,96 @@
-"""Prediction service for real-time inference."""
+"""Prediction service that encapsulates model loading and inference logic."""
 
 from __future__ import annotations
 
-import time
-from dataclasses import dataclass
+import logging
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-
-import numpy as np
+from typing import Any, Dict
 import pandas as pd
-from pydantic import ValidationError
+import pickle
+import shap
 
-from ..data import build_feature_matrix
 from ..exceptions import PredictionError
-from ..resilience import get_resilience_manager
-from ..schemas import APIPredictionRequest, APIPredictionResponse
+from ..schemas import APIPredictionRequest
 from .model_loader import ModelLoader
 
-resilience_manager = get_resilience_manager()
-
-
-@dataclass
-class PredictionRequest:
-    """Request for model prediction."""
-    genes: List[str]
-    model_name: str = "main"
-    return_probabilities: bool = True
-    include_explanations: bool = False
-
-
-@dataclass
-class PredictionResult:
-    """Result of model prediction."""
-    gene: str
-    prediction: float
-    probability: float
-    model_name: str
-    timestamp: float
-    explanation: Optional[Dict[str, Any]] = None
-
-
-@dataclass
-class BatchPredictionResult:
-    """Batch prediction results."""
-    predictions: List[PredictionResult]
-    model_name: str
-    total_genes: int
-    processing_time: float
-    model_performance: Dict[str, float]
+logger = logging.getLogger(__name__)
 
 
 class PredictionService:
-    """Service for making predictions with trained models."""
+    """Encapsulates the model and logic for making predictions."""
 
-    def __init__(self, models_dir: Path = Path("models")):
-        self.model_loader = ModelLoader(models_dir)
-        self.prediction_cache: Dict[str, Any] = {}
+    def __init__(self):
+        self.model_loader = ModelLoader()
+        self.model = None
+        self.explainer = None
+        self.model_version: str = "unknown"
+        self.last_loaded: datetime | None = None
+        self._load_model_and_explainer()
 
-    @resilience_manager.resilient_function(retries=3, circuit_breaker_name="prediction")
-    def predict_single(self, request: APIPredictionRequest) -> APIPredictionResponse:
-        """Make a single prediction with validation and resilience."""
+    def _load_model_and_explainer(self):
+        """Load the production model and explainer from the registry or local files."""
         try:
-            # Load model
-            model_version = request.model_version or "latest"
-            model = self.model_loader.load_model(model_version)
-
-            # Prepare features
-            feature_df = pd.DataFrame([request.features])
-
-            # Align columns
-            if hasattr(model, 'feature_names_in_'):
-                model_features = model.feature_names_in_
-                feature_df = feature_df.reindex(columns=model_features, fill_value=0)
-
-            # Make prediction
-            if hasattr(model, 'predict_proba'):
-                prediction = model.predict_proba(feature_df)[0, 1]
+            self.model = self.model_loader.load_model(stage="Production")
+            # In a real scenario, the explainer would also be versioned and loaded from a registry.
+            # For now, we'll load it from a fixed path.
+            explainer_path = Path("reports/shap/explainer.pkl")
+            if explainer_path.exists():
+                with open(explainer_path, "rb") as f:
+                    self.explainer = pickle.load(f)
             else:
-                prediction = float(model.predict(feature_df)[0])
-
-            return APIPredictionResponse(
-                prediction=prediction,
-                model_version=model_version
-            )
-        except ValidationError as e:
-            raise PredictionError(f"Invalid request format: {e}")
+                logger.warning("SHAP explainer not found. Explainability will be disabled.")
+            
+            # This is a simplification. In a real system, you'd get the version from the model registry.
+            self.model_version = "1.0.0" 
+            self.last_loaded = datetime.now()
+            logger.info("Successfully loaded model and explainer.")
         except Exception as e:
-            raise PredictionError(f"Prediction failed: {e}")
+            logger.error(f"Failed to load model or explainer: {e}")
+            raise
 
-    def predict_batch(self, request: PredictionRequest) -> BatchPredictionResult:
-        """Make batch predictions."""
+    def predict_single(self, request: APIPredictionRequest) -> Dict[str, Any]:
+        """Make a single prediction."""
+        if self.model is None:
+            raise PredictionError("Model is not loaded")
 
-        start_time = time.time()
+        try:
+            features_df = pd.DataFrame([request.features])
+            prediction = self.model.predict_proba(features_df)[0, 1]
+            return {"prediction": float(prediction), "model_version": self.model_version}
+        except Exception as e:
+            logger.error(f"Prediction failed: {e}")
+            raise PredictionError("Failed to make a prediction")
 
-        # Load model
-        model = self.model_loader.load_model(request.model_name)
+    def explain_single(self, request: APIPredictionRequest) -> Dict[str, Any]:
+        """Generate a single explanation."""
+        if self.explainer is None:
+            raise PredictionError("Explainer is not loaded")
 
-        # Prepare features for all genes
-        gene_features = self._prepare_gene_features(request.genes)
+        try:
+            features_df = pd.DataFrame([request.features])
+            shap_values = self.explainer(features_df)
+            
+            # For a single prediction, shap_values.values will have shape (1, num_features)
+            contributions = pd.Series(shap_values.values[0], index=features_df.columns)
+            
+            # Return top 10 contributing features
+            top_contributions = contributions.abs().nlargest(10)
+            top_features = contributions.loc[top_contributions.index].to_dict()
 
-        # Make predictions
-        if hasattr(model, 'predict_proba'):
-            probabilities = model.predict_proba(gene_features)
-            predictions = probabilities[:, 1]  # Probabilities of positive class
-        else:
-            predictions = model.predict(gene_features).astype(float)
-
-        # Create results
-        results = []
-        for i, gene in enumerate(request.genes):
-            result = PredictionResult(
-                gene=gene,
-                prediction=predictions[i],
-                probability=predictions[i] if request.return_probabilities else 0.0,
-                model_name=request.model_name,
-                timestamp=time.time()
-            )
-            results.append(result)
-
-        # Get model performance metrics
-        performance = self.model_loader.get_model_performance(request.model_name)
-
-        processing_time = time.time() - start_time
-
-        return BatchPredictionResult(
-            predictions=results,
-            model_name=request.model_name,
-            total_genes=len(request.genes),
-            processing_time=processing_time,
-            model_performance=performance
-        )
-
-    def _prepare_gene_features(self, genes: List[str]) -> pd.DataFrame:
-        """Prepare feature matrix for prediction."""
-
-        # In a real deployment, this would:
-        # 1. Query a feature store or database for gene features
-        # 2. Apply the same preprocessing as during training
-        # 3. Handle missing features gracefully
-
-        # For now, we'll use a simplified approach
-        # In practice, you'd want to replicate the exact feature engineering pipeline
-
-        # Create a minimal feature matrix based on the training data structure
-        # This is a placeholder - in production, you'd query real feature data
-
-        # Get feature names from a reference model
-        available_models = self.model_loader.list_available_models()
-        if not available_models:
-            # Return minimal features if no models available
-            return pd.DataFrame(index=genes)
-
-        # Use the first available model to get feature structure
-        sample_model = self.model_loader.load_model(available_models[0]["name"])
-
-        # Extract feature names from the pipeline
-        if hasattr(sample_model, 'feature_names_in_'):
-            feature_names = sample_model.feature_names_in_
-        else:
-            # Fallback: assume standard features
-            feature_names = ['ppi_degree', 'signal_peptide', 'ig_like_domain', 'protein_length']
-
-        # Create synthetic features (in production, this would be real data)
-        features = pd.DataFrame(index=genes, columns=feature_names)
-
-        # Fill with realistic synthetic values
-        for col in feature_names:
-            if col == 'ppi_degree':
-                features[col] = np.random.poisson(5, size=len(genes))
-            elif col in ['signal_peptide', 'ig_like_domain']:
-                features[col] = np.random.choice([0, 1], size=len(genes))
-            elif col == 'protein_length':
-                features[col] = np.random.randint(100, 2000, size=len(genes))
-            else:
-                features[col] = np.random.normal(0, 1, size=len(genes))
-
-        return features
+            return {"model_version": self.model_version, "feature_contributions": top_features}
+        except Exception as e:
+            logger.error(f"Explanation failed: {e}")
+            raise PredictionError("Failed to generate explanation")
 
     def health_check(self) -> Dict[str, Any]:
-        """Perform health check on the prediction service."""
+        """Return the health status of the service."""
         return {
-            "status": "healthy",
-            "timestamp": time.time(),
-            "available_models": len(self.model_loader.list_available_models()),
-            "cache_size": len(self.model_loader.model_cache)
+            "status": "ok",
+            "model_status": "loaded" if self.model is not None else "not_loaded",
+            "explainer_status": "loaded" if self.explainer is not None else "not_loaded",
+            "last_updated": self.last_loaded.isoformat() if self.last_loaded else "N/A",
         }
-
-    def get_model_comparison(self) -> Dict[str, Any]:
-        """Compare performance across available models."""
-        models = self.model_loader.list_available_models()
-
-        comparison = {
-            "models": [],
-            "best_model": None,
-            "best_metric": 0
-        }
-
-        for model in models:
-            perf = self.model_loader.get_model_performance(model["name"])
-            if perf:
-                model_info = {
-                    "name": model["name"],
-                    "type": model["type"],
-                    "metrics": perf
-                }
-                comparison["models"].append(model_info)
-
-                # Find best model by AUROC
-                if "auroc" in perf and perf["auroc"] > comparison["best_metric"]:
-                    comparison["best_metric"] = perf["auroc"]
-                    comparison["best_model"] = model["name"]
-
-        return comparison
 
 
 
