@@ -83,3 +83,4 @@ if not all_feedback:
 else:
     df = pd.DataFrame([asdict(item) for item in all_feedback])
     st.dataframe(df)
+

@@ -57,3 +57,4 @@ class FeedbackStore:
                     timestamp=datetime.fromisoformat(row[4])
                 ) for row in cursor.fetchall()
             ]
+

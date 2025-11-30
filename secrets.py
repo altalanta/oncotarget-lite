@@ -50,3 +50,4 @@ class SecretsManager:
 
 # Singleton instance
 secrets_manager = SecretsManager()
+
