@@ -187,7 +187,7 @@ dependencies = [
     "psutil>=5.9.0",
     "memory-profiler>=0.61.0",
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 
 [project.optional-dependencies]
 dev = [
@@ -198,12 +198,12 @@ dev = [
     "ruff>=0.4.0",
     "pip-audit>=2.7.0",
     "evidently>=0.4.0",
-    "great-expectations>=0.18.0",
     "pandas-stubs",
     "types-pyyaml",
     "types-requests",
     "types-tqdm",
 ]
+# great-expectations is excluded due to dependency conflicts with altair>=5.0
 docs = [
     "mkdocs-material>=9.5.0",
     "mkdocs-section-index",
@@ -212,14 +212,8 @@ docs = [
 
 
 [build-system]
-requires = ["uv>=0.1.11"]
-build-backend = "uv.build"
-
-[tool.uv]
-requires-python = ">=3.9"
-
-[tool.uv.scripts]
-dev = "uv run python -m oncotarget_lite.app"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers --strict-config --cov=oncotarget_lite --cov-report=term-missing"
