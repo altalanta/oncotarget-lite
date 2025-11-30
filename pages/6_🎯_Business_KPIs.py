@@ -74,3 +74,4 @@ else:
             labels={'is_agreement': 'Agreement Rate (%)', 'prediction_bin': 'Prediction Score Bin'}
         )
         st.plotly_chart(fig_bin, use_container_width=True)
+
