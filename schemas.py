@@ -6,33 +6,42 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, conint, constr
+from pydantic import BaseModel, ConfigDict, Field
+from typing import Literal
 
 
 class APIPredictionRequest(BaseModel):
     """Schema for API prediction requests."""
+    model_config = ConfigDict(protected_namespaces=())
+
     features: Dict[str, float]
     model_version: Optional[str] = None
 
 
 class APIPredictionResponse(BaseModel):
     """Schema for API prediction responses."""
+    model_config = ConfigDict(protected_namespaces=())
+
     prediction: float
     model_version: str
 
 
 class APIExplanationResponse(BaseModel):
     """Schema for API explanation responses."""
+    model_config = ConfigDict(protected_namespaces=())
+
     model_version: str
     feature_contributions: Dict[str, float]
 
 
 class TrainingConfig(BaseModel):
     """Schema for training configuration."""
+    model_config = ConfigDict(protected_namespaces=())
+
     seed: int = 42
     C: float = 1.0
     max_iter: int = 500
-    model_type: constr(regex="^(logreg|xgb|lgb|mlp|transformer|gnn)$") = "logreg"
+    model_type: Literal["logreg", "xgb", "lgb", "mlp", "transformer", "gnn"] = "logreg"
 
 
 def validate_manifest_schema(manifest_data: Dict[str, Any]) -> List[str]:
