@@ -23,6 +23,12 @@ cv_folds: 5
 random_seed: 42
 parallel_jobs: 4 # Default to 4 parallel jobs
 
+# Logging configuration
+logging:
+  level: INFO  # DEBUG, INFO, WARNING, ERROR
+  json_output: false  # Set to true for production (JSON logs for ELK/Datadog)
+  include_timestamp: true
+
 # hydra configuration
 hydra:
   run:
