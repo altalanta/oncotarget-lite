@@ -1,0 +1,15 @@
+artifact_uri: /Users/artemisfolle/Documents/Coding_Projects/oncotarget-lite/mlruns/627206513233916258/4396f0e1548c4bfe94c9536da64202b0/artifacts
+end_time: 1760745566188
+entry_point_name: ''
+experiment_id: '627206513233916258'
+lifecycle_stage: active
+run_id: 4396f0e1548c4bfe94c9536da64202b0
+run_name: train
+run_uuid: 4396f0e1548c4bfe94c9536da64202b0
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1760745524075
+status: 3
+tags: []
+user_id: artemisfolle
