@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import joblib
-import pandas as pd
 import mlflow
 
-from ..utils import ensure_dir
+from oncotarget_lite.utils import ensure_dir
+from oncotarget_lite.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class ModelLoader:
@@ -54,6 +56,7 @@ class ModelLoader:
                             "status": "ready"
                         })
 
+        logger.debug("models_listed", count=len(models))
         return models
 
     def _load_model_metadata(self, model_name: str) -> Dict[str, Any]:
@@ -67,30 +70,48 @@ class ModelLoader:
     def load_model(self, model_name: str = "oncotarget-lite", stage: str = "Production") -> Any:
         """
         Load a specific model.
-        
+
         In a production environment, this will load the model from the MLflow Model Registry.
         For local/dev, it can fall back to a local file.
         """
         cache_key = f"{model_name}@{stage}"
         if cache_key in self.model_cache:
+            logger.debug("model_cache_hit", model_name=model_name, stage=stage)
             return self.model_cache[cache_key]
 
         try:
             # Attempt to load from MLflow Model Registry first
             model_uri = f"models:/{model_name}/{stage}"
+            logger.info(
+                "loading_model_from_registry",
+                model_name=model_name,
+                stage=stage,
+                uri=model_uri,
+            )
             model = mlflow.pyfunc.load_model(model_uri)
-            print(f"Loaded model '{model_name}' version from stage '{stage}' from MLflow Model Registry.")
+            logger.info(
+                "model_loaded_from_registry",
+                model_name=model_name,
+                stage=stage,
+            )
             self.model_cache[cache_key] = model
             return model
         except Exception as e:
-            print(f"Could not load model from MLflow Model Registry: {e}")
-            print("Falling back to loading from local file path.")
+            logger.warning(
+                "mlflow_registry_load_failed",
+                model_name=model_name,
+                stage=stage,
+                error_type=type(e).__name__,
+                error_message=str(e),
+            )
 
             # Fallback to local file for dev/testing
             model_path = self.models_dir / "logreg_pipeline.pkl"
             if not model_path.exists():
+                logger.error("local_model_not_found", path=str(model_path))
                 raise FileNotFoundError(f"Model not found at local path: {model_path}")
 
+            logger.info("loading_model_from_local", path=str(model_path))
             model = joblib.load(model_path)
             self.model_cache[cache_key] = model
             return model
@@ -107,6 +128,7 @@ class ModelLoader:
     def clear_cache(self) -> None:
         """Clear the model cache."""
         self.model_cache.clear()
+        logger.info("model_cache_cleared")
 
     def get_model_performance(self, model_name: str) -> Dict[str, float]:
         """Get performance metrics for a model."""
@@ -125,7 +147,3 @@ class ModelLoader:
                     return data.get("test", {})
 
         return {}
-
-
-
-
