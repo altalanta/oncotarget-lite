@@ -31,8 +31,8 @@ CLI := $(ENV_EXPORT) $(PYTHON_RUN) -m oncotarget_lite.cli $(PROFILE_ARGS)
 
 .PHONY: setup sync download-data prepare train optimize evaluate explain dashboard cache scorecard snapshot docs docs-targets \
     monitor-report interpretability-validate model-card docs-monitoring docs-interpretability mkdocs-build \
-    all clean pytest lint format mypy bandit pre-commit security ablations distributed monitor \
-    validate-interpretability retrain deploy versions cleanup serve rollback compare compare-interactive \
+    all clean pytest lint format mypy bandit pre-commit security security-full security-deps security-code security-licenses security-report \
+    ablations distributed monitor validate-interpretability retrain deploy versions cleanup serve rollback compare compare-interactive \
     validate-data lineage drift experiment experiments experiment-report compare-experiments export-requirements docker.build.cpu docker.build.cuda docker.push.cpu docker.push.cuda
 
 setup:
@@ -260,7 +260,22 @@ else
 endif
 
 security:
-	$(ENV_EXPORT) $(PYTHON_RUN) -m scripts.security_scan
+	$(ENV_EXPORT) $(PYTHON_RUN) scripts/security_scan.py
+
+security-full:
+	$(ENV_EXPORT) $(PYTHON_RUN) scripts/security_scan.py --fix
+
+security-deps:
+	$(ENV_EXPORT) $(PYTHON_RUN) scripts/security_scan.py --dependencies --fix
+
+security-code:
+	$(ENV_EXPORT) $(PYTHON_RUN) scripts/security_scan.py --code
+
+security-licenses:
+	$(ENV_EXPORT) $(PYTHON_RUN) scripts/security_scan.py --licenses
+
+security-report:
+	$(ENV_EXPORT) $(PYTHON_RUN) scripts/security_scan.py --json --output security-report.json
 
 export-requirements:
 ifeq ($(HAS_UV),1)
