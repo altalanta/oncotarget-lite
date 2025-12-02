@@ -132,18 +132,18 @@ class DataValidator:
         # Check missing values
         for col, pct in missing_percentage.items():
             if pct > self.validation_rules['missing_threshold']:
-                validation_errors.append(f"Column '{col}' has {pct".1%"} missing values (threshold: {self.validation_rules['missing_threshold']".1%"})")
+                validation_errors.append(f"Column '{col}' has {pct:.1%} missing values (threshold: {self.validation_rules['missing_threshold']:.1%})")
 
         # Check duplicates
         if duplicate_percentage > self.validation_rules['duplicate_threshold']:
-            validation_errors.append(f"Dataset has {duplicate_percentage".1%"} duplicate rows (threshold: {self.validation_rules['duplicate_threshold']".1%"})")
+            validation_errors.append(f"Dataset has {duplicate_percentage:.1%} duplicate rows (threshold: {self.validation_rules['duplicate_threshold']:.1%})")
 
         # Check for high correlations (potential multicollinearity)
         if correlations:
             for col1 in correlations:
                 for col2, corr_val in correlations[col1].items():
                     if col1 != col2 and abs(corr_val) > self.validation_rules['correlation_threshold']:
-                        warnings.append(f"High correlation ({corr_val".3f"}) between '{col1}' and '{col2}'")
+                        warnings.append(f"High correlation ({corr_val:.3f}) between '{col1}' and '{col2}'")
 
         # Check for potential outliers (simple IQR method for numeric columns)
         for col in column_stats:
@@ -155,7 +155,7 @@ class DataValidator:
             outliers = df[(df[col] < lower_bound) | (df[col] > upper_bound)][col]
             if len(outliers) > 0:
                 outlier_pct = len(outliers) / total_rows
-                warnings.append(f"Column '{col}' has {outlier_pct".1%"} potential outliers")
+                warnings.append(f"Column '{col}' has {outlier_pct:.1%} potential outliers")
 
         # Generate dataset hash
         dataset_content = str(df.values.tobytes()) + str(df.columns.tolist())
@@ -439,7 +439,8 @@ class DataQualityMonitor:
             "",
             "## Dataset Overview",
             "",
-            f"- **Total Rows:** {profile.quality_metrics.total_rows:,}","            f"- **Total Columns:** {profile.quality_metrics.total_columns}",
+            f"- **Total Rows:** {profile.quality_metrics.total_rows:,}",
+            f"- **Total Columns:** {profile.quality_metrics.total_columns}",
             f"- **Dataset Hash:** `{profile.quality_metrics.dataset_hash}`",
             f"- **Data Source:** {profile.quality_metrics.data_source}",
             "",
@@ -458,7 +459,7 @@ class DataQualityMonitor:
             for col in missing_cols:
                 count = profile.quality_metrics.missing_values[col]
                 pct = profile.quality_metrics.missing_percentage[col]
-                report.append(f"| {col} | {count:,} | {pct".1%"} |")
+                report.append(f"| {col} | {count:,} | {pct:.1%} |")
             report.append("")
 
         # Validation results
@@ -480,7 +481,7 @@ class DataQualityMonitor:
         if profile.drift_score is not None:
             report.append("### Data Drift Analysis")
             report.append("")
-            report.append(f"- **Overall Drift Score:** {profile.drift_score".3f"}")
+            report.append(f"- **Overall Drift Score:** {profile.drift_score:.3f}")
 
             if profile.baseline_comparison:
                 significant_drift = profile.baseline_comparison['drift_results'].get('significant_drift', [])
@@ -559,8 +560,11 @@ def validate_data_cmd(
     metrics = profile.quality_metrics
 
     typer.echo(f"\n📊 Data Quality Summary for '{dataset_id}':")
-    typer.echo(f"   Total rows: {metrics.total_rows:,}","    typer.echo(f"   Total columns: {metrics.total_columns}")
-    typer.echo(f"   Missing values: {sum(metrics.missing_values.values()):,}","    typer.echo(f"   Duplicate rows: {metrics.duplicate_rows:,}","    typer.echo(f"   Dataset hash: {metrics.dataset_hash}")
+    typer.echo(f"   Total rows: {metrics.total_rows:,}")
+    typer.echo(f"   Total columns: {metrics.total_columns}")
+    typer.echo(f"   Missing values: {sum(metrics.missing_values.values()):,}")
+    typer.echo(f"   Duplicate rows: {metrics.duplicate_rows:,}")
+    typer.echo(f"   Dataset hash: {metrics.dataset_hash}")
 
     if metrics.validation_errors:
         typer.echo(f"\n❌ Validation Errors ({len(metrics.validation_errors)}):")
@@ -687,20 +691,20 @@ def drift_detection_cmd(
 
     # Display results
     typer.echo(f"\n📊 Drift Detection Results:")
-    typer.echo(f"   Overall drift score: {drift_results['overall_drift_score']".3f"}")
+    typer.echo(f"   Overall drift score: {drift_results['overall_drift_score']:.3f}")
 
     if drift_results['significant_drift']:
         typer.echo(f"   Significant drift detected in {len(drift_results['significant_drift'])} columns:")
         for col in drift_results['significant_drift']:
             col_drift = drift_results['column_drift'][col]
-            typer.echo(f"     • {col}: drift score {col_drift['drift_score']".3f"}")
+            typer.echo(f"     • {col}: drift score {col_drift['drift_score']:.3f}")
     else:
         typer.echo("   ✅ No significant drift detected")
 
     # Show detailed column analysis
-    typer.echo("
-📋 Column-by-Column Analysis:"    for col, drift_info in drift_results['column_drift'].items():
+    typer.echo("\n📋 Column-by-Column Analysis:")
+    for col, drift_info in drift_results['column_drift'].items():
         typer.echo(f"   {col}:")
-        typer.echo(f"     Drift score: {drift_info['drift_score']".3f"}")
-        typer.echo(f"     Mean difference: {drift_info['mean_diff']".3f"}")
-        typer.echo(f"     Std difference: {drift_info['std_diff']".3f"}")
+        typer.echo(f"     Drift score: {drift_info['drift_score']:.3f}")
+        typer.echo(f"     Mean difference: {drift_info['mean_diff']:.3f}")
+        typer.echo(f"     Std difference: {drift_info['std_diff']:.3f}")

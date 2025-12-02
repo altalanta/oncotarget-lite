@@ -26,6 +26,9 @@ PROCESSED_DIR = Path("data/processed")
 
 from .exceptions import DataPreparationError
 from .data_quality import DataQualityMonitor, DataLineageEntry
+from .logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass(slots=True)

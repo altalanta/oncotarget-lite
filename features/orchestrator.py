@@ -8,6 +8,7 @@ from typing import Any, Dict, List
 
 import numpy as np
 import pandas as pd
+import ray
 
 from ..utils import ensure_dir
 from .conservation_features import ConservationFeatures
@@ -15,6 +16,17 @@ from .domain_features import DomainFeatures
 from .pathway_features import PathwayFeatures
 from .ppi_features import PPIFeatures
 from .structural_features import StructuralFeatures
+
+
+@ray.remote
+def _extract_features_task(extractor, genes: pd.Series, **kwargs) -> pd.DataFrame | None:
+    """Helper function to run a single feature extraction process in a Ray task."""
+    try:
+        return extractor.extract_features(genes, **kwargs)
+    except Exception as e:
+        # Log the warning from within the remote task
+        print(f"Warning: {extractor.__class__.__name__} extraction failed: {e}")
+        return None
 
 
 class FeatureOrchestrator:
@@ -37,45 +49,33 @@ class FeatureOrchestrator:
         cache_key: str | None = None,
         **kwargs
     ) -> pd.DataFrame:
-        """Extract all advanced features for given genes."""
+        """Extract all advanced features for given genes in parallel using Ray."""
 
         if cache_key:
             cache_file = self.cache_dir / f"all_advanced_features_{cache_key}.parquet"
             if cache_file.exists():
                 return pd.read_parquet(cache_file)
 
-        # Extract features from each module
-        feature_dfs = []
+        if not ray.is_initialized():
+            ray.init()
 
-        try:
-            ppi_features = self.ppi_features.extract_features(genes, **kwargs)
-            feature_dfs.append(ppi_features)
-        except Exception as e:
-            print(f"Warning: PPI feature extraction failed: {e}")
+        extractors = [
+            self.ppi_features,
+            self.pathway_features,
+            self.domain_features,
+            self.conservation_features,
+            self.structural_features,
+        ]
 
-        try:
-            pathway_features = self.pathway_features.extract_features(genes, **kwargs)
-            feature_dfs.append(pathway_features)
-        except Exception as e:
-            print(f"Warning: Pathway feature extraction failed: {e}")
+        # Launch all feature extraction tasks in parallel
+        genes_ref = ray.put(genes)
+        futures = [_extract_features_task.remote(extractor, genes_ref, **kwargs) for extractor in extractors]
+        
+        # Retrieve the results
+        feature_dfs_raw = ray.get(futures)
 
-        try:
-            domain_features = self.domain_features.extract_features(genes, **kwargs)
-            feature_dfs.append(domain_features)
-        except Exception as e:
-            print(f"Warning: Domain feature extraction failed: {e}")
-
-        try:
-            conservation_features = self.conservation_features.extract_features(genes, **kwargs)
-            feature_dfs.append(conservation_features)
-        except Exception as e:
-            print(f"Warning: Conservation feature extraction failed: {e}")
-
-        try:
-            structural_features = self.structural_features.extract_features(genes, **kwargs)
-            feature_dfs.append(structural_features)
-        except Exception as e:
-            print(f"Warning: Structural feature extraction failed: {e}")
+        # Filter out any tasks that failed (and returned None)
+        feature_dfs = [df for df in feature_dfs_raw if df is not None]
 
         # Combine all features
         if not feature_dfs:
@@ -86,7 +86,8 @@ class FeatureOrchestrator:
             combined_features = pd.concat(feature_dfs, axis=1)
 
             # Ensure the index matches the input genes
-            combined_features.index = genes.values
+            if not combined_features.index.equals(genes.index):
+                 combined_features = combined_features.reindex(genes.index)
 
             # Handle duplicate columns by keeping the first occurrence
             combined_features = combined_features.loc[:, ~combined_features.columns.duplicated()]
