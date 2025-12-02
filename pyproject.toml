@@ -202,6 +202,12 @@ dev = [
     "types-pyyaml",
     "types-requests",
     "types-tqdm",
+    # Security scanning tools
+    "safety>=3.0.0",
+    "bandit[toml]>=1.7.0",
+    "pip-licenses>=4.0.0",
+    "cyclonedx-bom>=4.0.0",
+    "detect-secrets>=1.4.0",
 ]
 # great-expectations is excluded due to dependency conflicts with altair>=5.0
 docs = [
@@ -218,9 +224,15 @@ build-backend = "hatchling.build"
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers --strict-config --cov=oncotarget_lite --cov-report=term-missing"
 testpaths = ["tests"]
+markers = [
+  "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
+  "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
 filterwarnings = [
   "error::DeprecationWarning",
   "ignore::UserWarning:pkgutil",
+  "ignore:pkg_resources is deprecated:DeprecationWarning",
+  "ignore::DeprecationWarning:pkg_resources",
 ]
 
 [tool.ruff]
@@ -252,3 +264,19 @@ skip_covered = true
 show_missing = true
 precision = 2
 fail_under = 80
+
+# =============================================================================
+# SECURITY TOOLS CONFIGURATION
+# =============================================================================
+[tool.bandit]
+exclude_dirs = ["tests", "scripts", ".venv", "venv"]
+skips = [
+    "B101",  # assert_used - acceptable in tests
+    "B104",  # hardcoded_bind_all_interfaces - needed for containerized services
+    "B311",  # random - acceptable for non-cryptographic purposes
+]
+# Severity levels: LOW, MEDIUM, HIGH
+severity = "MEDIUM"
+
+[tool.bandit.assert_used]
+skips = ["*_test.py", "*test_*.py", "test_*.py"]
