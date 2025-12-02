@@ -6,22 +6,24 @@ This module provides thorough testing of the FastAPI model server, including:
 - Error handling tests to ensure graceful failure.
 - Schema validation tests using Pydantic models.
 - Integration tests for the Prometheus metrics endpoint.
+
+Uses FastAPI's dependency_overrides for clean, isolated testing.
 """
 
-import sys
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock
 from pathlib import Path
 
-# Add the project root to sys.path so 'deployment' module can be found
-PROJECT_ROOT = Path(__file__).parent.parent
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+from fastapi.testclient import TestClient
 
 from oncotarget_lite.schemas import (
     APIPredictionRequest,
     APIPredictionResponse,
     APIExplanationResponse,
+)
+from oncotarget_lite.feature_validation import (
+    FeatureValidator,
+    ValidationResult,
 )
 
 
@@ -29,7 +31,7 @@ from oncotarget_lite.schemas import (
 # FIXTURES
 # =============================================================================
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def mock_prediction_service():
     """Create a mock prediction service."""
     mock_service = MagicMock()
@@ -47,57 +49,61 @@ def mock_prediction_service():
         "explainer_status": "loaded",
         "last_updated": "2024-01-01T00:00:00",
     }
+    mock_service.is_loaded = True
+    mock_service.model_version = "test-v1.0.0"
     return mock_service
 
 
-@pytest.fixture(scope="module")
-def test_client(mock_prediction_service):
+@pytest.fixture
+def mock_feature_validator():
+    """Create a mock feature validator that accepts any features."""
+    mock_validator = MagicMock(spec=FeatureValidator)
+    mock_validator.expected_features = []
+    mock_validator.validate.return_value = ValidationResult(
+        is_valid=True,
+        errors=[],
+        warnings=[],
+        validated_features=None,  # Will use original features
+    )
+    mock_validator.get_feature_info.return_value = {
+        "total_features": 0,
+        "feature_names": [],
+        "feature_specs": {},
+    }
+    return mock_validator
+
+
+@pytest.fixture
+def test_client(mock_prediction_service, mock_feature_validator):
     """
     Create a TestClient instance for the FastAPI app.
 
-    We patch the PredictionService before importing the app module
-    to prevent it from trying to load a real model during testing.
+    Uses FastAPI's dependency_overrides for clean dependency injection,
+    avoiding the need for complex module patching.
     """
-    from fastapi.testclient import TestClient
+    # Import dependencies module to get the dependency functions
+    from oncotarget_lite.dependencies import (
+        get_prediction_service,
+        get_feature_validator,
+        reset_container,
+    )
 
-    # Create a mock PredictionService class
-    mock_service_class = MagicMock(return_value=mock_prediction_service)
+    # Reset the container to ensure clean state
+    reset_container()
 
-    # We need to patch where PredictionService is imported, not where it's defined
-    # The model_server imports it as: from deployment.prediction_service import PredictionService
-    # So we need to patch it at the deployment.prediction_service module level
+    # Import the app
+    from oncotarget_lite.model_server import app
 
-    # First, create a mock module for deployment.prediction_service
-    mock_deployment_module = MagicMock()
-    mock_deployment_module.PredictionService = mock_service_class
+    # Override dependencies with mocks
+    app.dependency_overrides[get_prediction_service] = lambda: mock_prediction_service
+    app.dependency_overrides[get_feature_validator] = lambda: mock_feature_validator
 
-    # Mock the resilience manager too
-    mock_resilience = MagicMock()
-    mock_resilience_module = MagicMock()
-    mock_resilience_module.get_resilience_manager = MagicMock(return_value=mock_resilience)
+    with TestClient(app) as client:
+        yield client
 
-    # Inject the mock modules into sys.modules BEFORE importing model_server
-    with patch.dict(sys.modules, {
-        'deployment': MagicMock(),
-        'deployment.prediction_service': mock_deployment_module,
-    }):
-        # Clear any cached import of model_server
-        modules_to_clear = [k for k in list(sys.modules.keys()) if 'model_server' in k]
-        for mod in modules_to_clear:
-            del sys.modules[mod]
-
-        # Also patch the resilience manager
-        with patch('oncotarget_lite.resilience.get_resilience_manager', return_value=mock_resilience):
-            # Now import the app - it will use our mocked modules
-            from oncotarget_lite.model_server import app
-
-            # The prediction_service global variable was created at import time
-            # We need to replace it with our mock
-            import oncotarget_lite.model_server as server_module
-            server_module.prediction_service = mock_prediction_service
-
-            with TestClient(app) as client:
-                yield client
+    # Clean up overrides after test
+    app.dependency_overrides.clear()
+    reset_container()
 
 
 @pytest.fixture
@@ -318,6 +324,70 @@ class TestMetricsEndpoint:
 
 
 # =============================================================================
+# /features ENDPOINT TESTS
+# =============================================================================
+
+class TestFeaturesEndpoint:
+    """Tests for the /features endpoint."""
+
+    def test_features_returns_200(self, test_client):
+        """The features endpoint should return 200 OK."""
+        response = test_client.get("/features")
+        assert response.status_code == 200
+
+    def test_features_response_contains_total_features(self, test_client):
+        """The response should contain 'total_features' field."""
+        response = test_client.get("/features")
+        response_data = response.json()
+        assert "total_features" in response_data
+
+    def test_features_response_contains_feature_names(self, test_client):
+        """The response should contain 'feature_names' field."""
+        response = test_client.get("/features")
+        response_data = response.json()
+        assert "feature_names" in response_data
+
+
+# =============================================================================
+# /validate ENDPOINT TESTS
+# =============================================================================
+
+class TestValidateEndpoint:
+    """Tests for the /validate endpoint."""
+
+    def test_validate_returns_200(self, test_client):
+        """The validate endpoint should return 200 OK."""
+        payload = {"features": {"feature1": 0.5}}
+        response = test_client.post("/validate", json=payload)
+        assert response.status_code == 200
+
+    def test_validate_response_contains_is_valid(self, test_client):
+        """The response should contain 'is_valid' field."""
+        payload = {"features": {"feature1": 0.5}}
+        response = test_client.post("/validate", json=payload)
+        response_data = response.json()
+        assert "is_valid" in response_data
+
+
+# =============================================================================
+# /reload ENDPOINT TESTS
+# =============================================================================
+
+class TestReloadEndpoint:
+    """Tests for the /reload endpoint."""
+
+    def test_reload_returns_200(self, test_client, mock_prediction_service):
+        """The reload endpoint should return 200 OK on success."""
+        response = test_client.post("/reload")
+        assert response.status_code == 200
+
+    def test_reload_calls_service_reload(self, test_client, mock_prediction_service):
+        """The reload endpoint should call the service's reload method."""
+        test_client.post("/reload")
+        mock_prediction_service.reload.assert_called_once()
+
+
+# =============================================================================
 # ERROR HANDLING TESTS
 # =============================================================================
 
@@ -415,3 +485,60 @@ class TestSchemaValidation:
         }
         response = APIExplanationResponse(**payload)
         assert response.feature_contributions == {"feat1": 0.1, "feat2": -0.2}
+
+    def test_prediction_request_rejects_empty_features(self):
+        """Empty features should be rejected."""
+        with pytest.raises(ValueError, match="features cannot be empty"):
+            APIPredictionRequest(features={})
+
+    def test_prediction_request_rejects_nan_values(self):
+        """NaN feature values should be rejected."""
+        with pytest.raises(ValueError, match="invalid value"):
+            APIPredictionRequest(features={"a": float("nan")})
+
+    def test_prediction_request_rejects_inf_values(self):
+        """Infinite feature values should be rejected."""
+        with pytest.raises(ValueError, match="invalid value"):
+            APIPredictionRequest(features={"a": float("inf")})
+
+
+# =============================================================================
+# DEPENDENCY INJECTION TESTS
+# =============================================================================
+
+class TestDependencyInjection:
+    """Tests for the dependency injection system."""
+
+    def test_dependency_override_works(self, test_client, mock_prediction_service):
+        """Verify that dependency overrides are working correctly."""
+        # The mock should return our configured response
+        response = test_client.post("/predict", json={"features": {"a": 1.0}})
+        assert response.status_code == 200
+        assert response.json()["prediction"] == 0.85  # Our mock value
+
+    def test_different_mocks_per_test(self, mock_prediction_service, mock_feature_validator):
+        """Each test should be able to use different mock configurations."""
+        from oncotarget_lite.dependencies import (
+            get_prediction_service,
+            get_feature_validator,
+            reset_container,
+        )
+        from oncotarget_lite.model_server import app
+
+        reset_container()
+
+        # Configure mock with different value
+        mock_prediction_service.predict_single.return_value = {
+            "prediction": 0.99,
+            "model_version": "custom-v2.0.0",
+        }
+
+        app.dependency_overrides[get_prediction_service] = lambda: mock_prediction_service
+        app.dependency_overrides[get_feature_validator] = lambda: mock_feature_validator
+
+        with TestClient(app) as client:
+            response = client.post("/predict", json={"features": {"a": 1.0}})
+            assert response.json()["prediction"] == 0.99
+
+        app.dependency_overrides.clear()
+        reset_container()
