@@ -137,3 +137,5 @@ def add_observability_middleware(app) -> None:
     app.add_middleware(RequestLoggingMiddleware)
     app.add_middleware(CorrelationIdMiddleware)
 
+
+
