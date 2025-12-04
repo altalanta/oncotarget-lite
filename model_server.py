@@ -44,6 +44,8 @@ from oncotarget_lite.dependencies import (
     get_feature_validator,
     get_container,
 )
+from oncotarget_lite.timeouts import run_with_timeout, TimeoutError as OpTimeoutError
+from oncotarget_lite.settings import get_settings
 
 # Type aliases for dependency injection
 from deployment.prediction_service import PredictionService
@@ -197,10 +199,18 @@ async def predict(
                 model_version=request.model_version,
             )
 
-            # Offload blocking ML inference to thread pool
-            result = await asyncio.to_thread(
-                prediction_service.predict_single,
-                validated_request
+            # Get timeout from settings
+            settings = get_settings()
+            prediction_timeout = settings.api.prediction_timeout
+
+            # Offload blocking ML inference to thread pool with timeout protection
+            result = await run_with_timeout(
+                asyncio.to_thread(
+                    prediction_service.predict_single,
+                    validated_request
+                ),
+                timeout=prediction_timeout,
+                operation_name="ml_prediction",
             )
 
             # Add validation warnings to response
@@ -217,6 +227,12 @@ async def predict(
                 warning_count=len(validation_result.warnings),
             )
             return result
+        except OpTimeoutError as e:
+            logger.error("prediction_timeout", timeout=str(e.timeout))
+            raise HTTPException(
+                status_code=504,
+                detail=f"Prediction timed out after {e.timeout:.1f}s"
+            )
         except PredictionError as e:
             logger.error("prediction_failed", error=str(e))
             raise HTTPException(status_code=500, detail=str(e))
@@ -306,7 +322,14 @@ async def health_check(
     prediction_service: PredictionServiceDep,
 ) -> Dict[str, Any]:
     """
-    Health check endpoint for Kubernetes liveness/readiness probes.
+    Comprehensive health check endpoint for Kubernetes probes.
+
+    Returns aggregated status of all dependencies including:
+    - ML model
+    - Database
+    - Cache
+    - Memory
+    - Disk
 
     Args:
         prediction_service: Injected prediction service
@@ -314,7 +337,54 @@ async def health_check(
     Returns:
         A dictionary containing the health status and component states.
     """
-    return prediction_service.health_check()
+    from oncotarget_lite.health import get_health_checker
+
+    # Get comprehensive health status
+    checker = get_health_checker()
+    health = await checker.check_all(timeout=5.0)
+
+    # Combine with prediction service status
+    service_health = prediction_service.health_check()
+
+    return {
+        **health.to_dict(),
+        "prediction_service": service_health,
+    }
+
+
+@app.get("/health/live")
+async def liveness_check() -> Dict[str, Any]:
+    """
+    Kubernetes liveness probe endpoint.
+
+    Quick check that the process is alive - no dependency checks.
+    """
+    from oncotarget_lite.health import get_health_checker
+
+    checker = get_health_checker()
+    return await checker.liveness_check()
+
+
+@app.get("/health/ready")
+async def readiness_check(
+    prediction_service: PredictionServiceDep,
+) -> Dict[str, Any]:
+    """
+    Kubernetes readiness probe endpoint.
+
+    Checks if the service is ready to accept traffic.
+    """
+    from oncotarget_lite.health import get_health_checker
+
+    checker = get_health_checker()
+    readiness = await checker.readiness_check()
+
+    # Also check if prediction service is loaded
+    if not prediction_service.is_loaded:
+        readiness["status"] = "not_ready"
+        readiness["reason"] = "Model not loaded"
+
+    return readiness
 
 
 @app.get("/features", response_model=APIFeatureInfoResponse)
