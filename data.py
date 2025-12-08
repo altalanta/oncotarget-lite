@@ -258,12 +258,12 @@ def build_feature_matrix(raw_dir: Path = RAW_DIR, use_advanced_features: bool = 
         # Use optimized data loader for maximum performance
         optimized_loader = create_optimized_pipeline(use_polars=True, use_modin=False)
         tables = _load_raw_tables_optimized(raw_dir, optimized_loader)
-        print(f"🚀 Loaded {len(tables)} data tables with optimized processing")
+        logger.info("data_tables_loaded", count=len(tables), mode="optimized")
     elif use_scalable_processing:
         # Use scalable data loader for better performance
         loader = ScalableDataLoader()
         tables = loader.load_raw_tables_parallel(raw_dir)
-        print(f"✅ Loaded {len(tables)} data tables in parallel")
+        logger.info("data_tables_loaded", count=len(tables), mode="parallel")
     else:
         # Use original sequential loading
         tables = _load_raw_tables(raw_dir)
@@ -296,7 +296,7 @@ def build_feature_matrix(raw_dir: Path = RAW_DIR, use_advanced_features: bool = 
 
     # Advanced biological features (optional)
     if use_advanced_features:
-        print("🔬 Extracting advanced biological features...")
+        logger.info("extracting_advanced_features")
         if use_scalable_processing:
             feature_orchestrator = ScalableFeatureOrchestrator()
             advanced_features = feature_orchestrator.extract_features_parallel(
@@ -330,18 +330,25 @@ def build_feature_matrix(raw_dir: Path = RAW_DIR, use_advanced_features: bool = 
             # Merge advanced features with basic features
             features = pd.concat([features, advanced_features], axis=1)
 
-            # Print feature summary
+            # Log feature summary
             if hasattr(feature_orchestrator, 'get_feature_summary'):
                 summary = feature_orchestrator.get_feature_summary(advanced_features)
-                print(f"✅ Advanced features extracted: {summary['total_features']} features across {summary['total_genes']} genes")
-                for category, count in summary['feature_categories'].items():
-                    print(f"   - {category}: {count} features")
+                logger.info(
+                    "advanced_features_extracted",
+                    total_features=summary['total_features'],
+                    total_genes=summary['total_genes'],
+                    categories=summary['feature_categories'],
+                )
             else:
-                print(f"✅ Advanced features extracted: {advanced_features.shape[1]} features across {advanced_features.shape[0]} genes")
+                logger.info(
+                    "advanced_features_extracted",
+                    total_features=advanced_features.shape[1],
+                    total_genes=advanced_features.shape[0],
+                )
 
         except Exception as e:
-            print(f"⚠️ Advanced feature extraction failed: {e}")
-            print("Continuing with basic features only...")
+            logger.warning("advanced_feature_extraction_failed", error=str(e))
+            logger.info("continuing_with_basic_features")
 
     labels = merged["is_cell_surface"].astype(int)
     return features, labels
