@@ -46,6 +46,7 @@ from oncotarget_lite.dependencies import (
 )
 from oncotarget_lite.timeouts import run_with_timeout, TimeoutError as OpTimeoutError
 from oncotarget_lite.settings import get_settings
+from oncotarget_lite.rate_limit import add_rate_limiting, RateLimiter
 
 # Type aliases for dependency injection
 from deployment.prediction_service import PredictionService
@@ -126,6 +127,16 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+# Add rate limiting to protect API from abuse
+# Configure via environment: RATE_LIMIT_PER_MINUTE (default: 60)
+rate_limit_per_minute = int(os.environ.get("RATE_LIMIT_PER_MINUTE", "60"))
+rate_limiter = add_rate_limiting(
+    app,
+    requests_per_minute=rate_limit_per_minute,
+    burst_size=rate_limit_per_minute // 3,  # Allow 1/3 of limit as burst
+    exempt_paths=["/health", "/health/live", "/health/ready", "/metrics", "/docs", "/openapi.json"],
 )
 
 
