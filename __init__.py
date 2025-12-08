@@ -39,6 +39,34 @@ from oncotarget_lite.timeouts import (
     TimeoutError,
 )
 
+# Retry utilities
+from oncotarget_lite.retry import (
+    retry,
+    retry_with_backoff,
+    RetryContext,
+)
+
+# Rate limiting
+from oncotarget_lite.rate_limit import (
+    RateLimiter,
+    add_rate_limiting,
+)
+
+# Exceptions
+from oncotarget_lite.exceptions import (
+    OncoTargetError,
+    DataPreparationError,
+    DataValidationError,
+    ModelLoadingError,
+    ModelNotFoundError,
+    PredictionError,
+    ConfigurationError,
+    APIError,
+    RateLimitError,
+    ResilienceError,
+    CircuitBreakerOpen,
+)
+
 __all__ = [
     "__version__",
     "DEFAULT_RANDOM_STATE",
@@ -58,4 +86,23 @@ __all__ = [
     "with_timeout",
     "timeout_context",
     "TimeoutError",
+    # Retry
+    "retry",
+    "retry_with_backoff",
+    "RetryContext",
+    # Rate Limiting
+    "RateLimiter",
+    "add_rate_limiting",
+    # Exceptions
+    "OncoTargetError",
+    "DataPreparationError",
+    "DataValidationError",
+    "ModelLoadingError",
+    "ModelNotFoundError",
+    "PredictionError",
+    "ConfigurationError",
+    "APIError",
+    "RateLimitError",
+    "ResilienceError",
+    "CircuitBreakerOpen",
 ]
