@@ -10,12 +10,16 @@ import numpy as np
 import pandas as pd
 import ray
 
+from ..logging_config import get_logger
 from ..utils import ensure_dir
 from .conservation_features import ConservationFeatures
 from .domain_features import DomainFeatures
 from .pathway_features import PathwayFeatures
 from .ppi_features import PPIFeatures
 from .structural_features import StructuralFeatures
+
+
+logger = get_logger(__name__)
 
 
 @ray.remote
@@ -25,7 +29,11 @@ def _extract_features_task(extractor, genes: pd.Series, **kwargs) -> pd.DataFram
         return extractor.extract_features(genes, **kwargs)
     except Exception as e:
         # Log the warning from within the remote task
-        print(f"Warning: {extractor.__class__.__name__} extraction failed: {e}")
+        logger.warning(
+            "feature_extraction_failed",
+            extractor=extractor.__class__.__name__,
+            error=str(e),
+        )
         return None
 
 
@@ -87,7 +95,7 @@ class FeatureOrchestrator:
 
             # Ensure the index matches the input genes
             if not combined_features.index.equals(genes.index):
-                 combined_features = combined_features.reindex(genes.index)
+                combined_features = combined_features.reindex(genes.index)
 
             # Handle duplicate columns by keeping the first occurrence
             combined_features = combined_features.loc[:, ~combined_features.columns.duplicated()]
